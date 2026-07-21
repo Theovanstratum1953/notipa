@@ -1,0 +1,15 @@
+services:
+  web:
+    build: .
+    volumes:
+      - .:/app
+      - notipa_dev_db:/app/data
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      - DJANGO_ENV=development
+
+volumes:
+  notipa_dev_db:

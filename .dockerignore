@@ -1,0 +1,13 @@
+.venv/
+__pycache__/
+*.pyc
+.git/
+.gitignore
+db.sqlite3
+data/
+*.sqlite3
+.env
+.env.prod
+staticfiles/
+media/
+.idea/
