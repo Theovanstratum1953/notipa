@@ -149,6 +149,13 @@ Worth putting this explicitly in whatever runbook or README ends up covering dep
 
 **Backups (production):** still not designed — the one open item carried over across every handover revision so far, and it should exist before real guardian/student data is in the system, not after. Worth a short follow-up plan (e.g. scheduled `pg_dump` from the `db` container to off-host storage) before real usage starts, not before Phase 1 development — no urgency while it's still local dev.
 
+**Production domain (decision):** the plan is a DigitalOcean droplet with two separate concerns on two separate (sub)domains, not one:
+
+- **`notipa.org`** — a landing/marketing page for people learning about Notipa. Doesn't need to be Django at all; a static site is a reasonable choice here, and it means this half of the deployment has no dependency on the app container, the database, or Docker at all.
+- **`app.notipa.org`** — the actual Notipa app: everything built in this handover plan (login, dashboard, all Communication sections, admin/teacher/guardian views), and where the PWA (Section 9, item 8 — in progress) will live once built. The PWA's service worker scope and manifest should be anchored to this subdomain, not the root domain, so it never has any claim over the marketing page.
+
+This split keeps the marketing page's uptime/deploy cycle independent of the app's, and avoids a service worker installed for "the app" accidentally intercepting requests to the landing page. TLS-wise, this means two certificates to provision (Let's Encrypt via Caddy or nginx handles this cleanly for both), not one — worth remembering when the reverse-proxy layer gets built, since the current Docker setup (Section 7) doesn't have one yet; `docker-compose.prod.yml` currently exposes the `web` service directly.
+
 ---
 
 ## 9. Phase 1 Build Sequence (from proposal Section 11, sequenced for solo execution)
@@ -772,7 +779,110 @@ Also confirmed: `manage.py check` and `manage.py makemigrations --check --dry-ru
 
 ---
 
-## 29. Immediate Next Steps
+## 29. Future Development — Roadmap (Not Yet Started)
+
+Five features flagged for after Phase 1 (foundation through Section 28) and the PWA/push layer (Section 9, item 8) are done. **Nothing below has any code, model, or migration yet** — no `models.py` changes, no views, nothing — this section exists purely to capture the design questions now, while they're fresh, so whoever eventually builds each one isn't rediscovering the same considerations from scratch. Proposal Section 4.3 already keeps a few things out of v1 scope (payment processing, gamification, full LMS); these five are a further-out layer beyond even the Phase 2/3/4 sketch in proposal Section 11.
+
+None of these are sequenced yet — a suggested order is given at the end of this section, but it's a recommendation, not a commitment.
+
+### 29.1 Guardian ↔ Teacher messaging
+
+Direct, threaded messages between a guardian and a teacher — the natural next step once Announcements/Homework have proven the one-to-many broadcast pattern works; this is the one-to-one counterpart.
+
+- **Likely model shape:** a `Conversation` (or reuse a lighter `Message` model with a `thread_key`) scoped to a `(guardian, teacher, student)` triple, not just `(guardian, teacher)` — a guardian with two children in the same class, or two children with different teachers, needs the context of *which child* a conversation is about kept explicit, the same way `GuardianLink.relationship`/`is_primary_contact` keeps context explicit elsewhere in this app.
+- **Scoping:** a guardian should only be able to start a conversation with a teacher of a class their own linked child is actually in — the same `_relevant_class_ids_for_guardian`-style re-derivation already used for Announcements/Homework/Fee Notices/Permission Slips guardian visibility, not a trusted id from a dropdown.
+- **Retention, not deletion.** Unlike Announcements/Homework/Fee Notices/Permission Slips (all real, permanent deletes with no soft-delete field), messages between an adult and a school about a child are exactly the kind of record that should probably never be permanently deletable by either party — a full, unedited audit trail matters here more than tidiness. Worth deciding explicitly rather than defaulting to the delete pattern used everywhere else in this app.
+- **Notifications:** depends on the PWA/push layer (Section 9, item 8) landing first — a new message is exactly the kind of event that needs a push notification, not just an in-app unread badge.
+- **Must be switchable off, per school.** A school (or an individual teacher, if scoped that finely) should be able to turn this feature off entirely rather than adopting it by default — not every school wants to take on the moderation/response-time expectations that come with opening a messaging channel. Likely a simple boolean on `School` (or a per-teacher override), checked alongside the existing `role_required`/`scope_to_school` checks before a conversation can be started. See 29.6 — this same switch should cover Class group messaging (29.3) too, ideally as one shared setting rather than two.
+
+### 29.2 Guardian ↔ Guardian messaging
+
+**The one to build last, and the one to think hardest about before starting.** Every other feature in this app connects a family to the school; this is the first one that would connect two families — or more precisely, two adults — directly to each other, with no school staff in the loop by default. That's a materially different safeguarding posture than anything shipped so far, and deserves the same "part not to rush" treatment Section 1 gives the permission model itself.
+
+- **Narrow the scope on purpose.** The lowest-risk, highest-value version of this isn't "any guardian can message any other guardian at the school" — it's **co-guardians of the same student** (e.g. a child's mother and father, both linked via `GuardianLink` to the same `Student`) being able to coordinate about that specific child. That's a much smaller, better-justified surface than opening messaging between strangers who happen to have children in the same class.
+- **Opt-in, not automatic.** Being linked to the same student shouldn't silently open a channel — at minimum, both sides should have to acknowledge or enable it, and there should be a way to block/report, unlike every other feature in this app which has no concept of one user acting against another.
+- **Admin visibility.** Worth deciding whether a school admin needs at least metadata-level visibility (that a conversation exists, not necessarily its content) given this involves adults who may not otherwise have any relationship with each other beyond a shared child.
+- **Recommendation:** don't build this until guardian-teacher messaging (29.1) has shipped and been used in the pilot — it's a much smaller, better-understood risk to prove the messaging infrastructure on first.
+
+### 29.3 Class group messaging
+
+A shared thread visible to a class's homeroom teacher, any co-teachers, and every guardian linked to a student in that class — sits between Announcements (broadcast, no reply) and the two messaging items above (fully threaded, one-to-one).
+
+- **The real design decision:** is this read-only broadcast with reactions (closer to Announcements, lower moderation risk) or a true multi-party group chat where any guardian can post (higher moderation/spam risk, and closer to the Facebook-group failure mode this whole product exists to replace — worth being deliberate that this doesn't quietly become the thing it's meant to fix). Leaning toward the former, at least for a first version, seems consistent with the rest of this app's design philosophy so far (e.g. Announcements' deliberate draft/publish gate).
+- **Scoping reuses existing patterns directly** — the same "which classes is this guardian's own child in" computation already built for Announcements/Homework/Fee Notices/Permission Slips applies unchanged here.
+- **Same on/off switch as 29.1.** A school should be able to disable this without disabling Guardian-Teacher messaging, and vice versa — worth designing the toggle as two independent flags (or one flag per feature) from the start rather than a single "messaging: on/off" switch that couples them.
+
+### 29.4 Calendar — school days off, holidays, and other non-instructional dates
+
+Lower-risk and lower-complexity than the three messaging items above; could reasonably be sequenced earlier if "ship the simplest thing first" drives the order rather than "ship in proposal order."
+
+- **Likely model shape:** a `CalendarEvent`-style model, school-wide or class-scoped (school-wide for a national holiday, class-scoped for e.g. a single class's field-trip day) — the same nullable-`school_class` pattern already established by `Announcement`/`PermissionSlip`, not a new pattern to invent.
+- **Natural connection to existing due dates.** `Homework.due_date`, `FeeNotice.due_date`, and `PermissionSlip.response_deadline` all already exist — a calendar of non-instructional days is most useful once it can warn "this due date falls on a day off," which is a real feature to design for rather than two unrelated calendars sitting side by side.
+
+### 29.5 Student homework submission (upload-ready homework)
+
+The reverse direction of the file upload Homework already has. Right now `Homework.attachment` is one-way, teacher → guardian (Section 24) — this adds a way for completed work to come back the other direction.
+
+- **Likely model shape:** a `HomeworkSubmission` model, one per `(Homework, Student)` pair (mirroring `PermissionSlipResponse`'s one-per-`(PermissionSlip, Student)` shape), with its own `FileField`, a `submitted_at` timestamp, and probably a status (submitted / late / graded) rather than reusing `Homework`'s own fields.
+- **Who actually uploads matters here.** Students don't hold accounts in this app at all (Section 11.2 — only admins, teachers, and guardians do) — so in practice a *guardian* would be performing the upload on the student's behalf. Worth being explicit about that in whatever UI copy accompanies this, rather than implying the child is using the app directly.
+- **No new storage-backend work needed.** This reuses the exact `FileField`/`STORAGES['default']` setup already fixed for `Homework.attachment` (Section 24.2) — the storage-backend groundwork is already done.
+
+### 29.6 Additional ideas (public roadmap only, not yet detailed here)
+
+A few smaller, lower-risk additions to the public roadmap that don't need the same design write-up as the messaging items above:
+
+- **Attendance tracking** — daily present/absent per class, visible to a student's own guardians. Straightforward extension of the existing school/class/student scoping.
+- **Multi-language interface** — translated UI strings so a school can run Notipa in the language its families speak. Standard Django i18n (`gettext`), no data-model changes.
+- **SMS notification fallback** — a text-message alert alongside the in-app/push notification, for guardians without a smartphone or reliable data. Needs an SMS gateway integration (e.g. Semaphore, Twilio) and a per-guardian delivery-preference field; a real added running cost (already reflected in the ~US$20–40/month estimate in the Adopt-a-School pitch).
+- **Data export tools** — one-click CSV/PDF export of a school's own records. Also closes a real gap flagged in the DPG submission draft (Indicator 6, Mechanism for Extracting Data) — worth prioritizing for that reason alone.
+- **Per-school messaging on/off switch** — a school (or teacher) can disable Guardian-Teacher messaging (29.1) and/or Class group messaging (29.3) entirely rather than having either forced on by default. Not a standalone feature so much as a required part of shipping 29.1/29.3 responsibly — see the design notes added directly to those two sections.
+
+### 29.7 Suggested build order
+
+Roughly risk/complexity-ordered, not proposal-ordered: **Calendar (29.4)** → **Homework submission (29.5)** → **Guardian-Teacher messaging (29.1)** → **Class group messaging (29.3)** → **Guardian-Guardian messaging (29.2)**, saving the highest-risk, most safeguarding-sensitive feature for last, after the messaging infrastructure itself has been proven on the lower-risk guardian-teacher case. The four items in 29.6 are lower-risk than all of the above and can slot in anywhere.
+
+**Note on the public roadmap:** Guardian ↔ Guardian messaging (29.2) has been deliberately left off the `notipa.org` landing page's public Roadmap section — advertising direct messaging between two unrelated adults, with no school staff in the loop, ahead of having actually designed the safeguarding model for it, isn't a claim worth making publicly yet. It stays in this internal document as a real future consideration (see 29.2's own caveats). The four items in 29.6 were added to the public roadmap in its place. Keep `landing/index.html`'s Roadmap section in sync with this document going forward, remembering that the two lists are not identical by design.
+
+---
+
+## 30. Registered Entity & Funding Path (Decision)
+
+Captured here because it affects how every funding/registration avenue below gets approached, and because it isn't the kind of thing that belongs scattered across chat history.
+
+### 30.1 The entity
+
+**StratumCode Software Development Services** is the registered business behind Notipa — a Philippine DTI Business Name (National scope, Business Name No. 7171985), registered 26 May 2025, valid through 26 May 2030, issued to Jessica H Van Stratum (Theo's wife, a Filipino citizen — registering under her sidesteps the friction the DTI/SEC system has around non-citizen registrants). **No separate registration for Notipa specifically was created, and none is needed:** a DTI business name covers whatever the registrant develops under it, and StratumCode's "software development services" scope is broad enough to cover Notipa the same way it would cover ptahcast.com or any other product.
+
+This was a real decision point, not a default: the alternative considered was a dedicated nonprofit/foundation specifically for Notipa, which was ruled out for now because (a) it's materially more setup — SEC non-stock incorporation, a board of trustees, a separate BIR tax-exemption ruling, ongoing annual compliance — disproportionate to a solo, one-pilot-school stage, and (b) it would disqualify Notipa from UNICEF's Venture Fund, which explicitly requires a *for-profit* applicant, and would complicate Track 2 (the paid private-school licence — proposal Section 6) coexisting with a nonprofit structure. Worth revisiting only if the project genuinely outgrows a sole-proprietorship model or a specifically nonprofit-only funding path becomes the priority — not a now decision.
+
+**Practical implication for any grant, DPG registration, or sponsor pitch:** StratumCode Software Development Services is the organisation, Notipa is the product — the same split as any dev shop and the product it ships. Keep that distinction consistent across the GitHub repo's `LICENSE`/README, the DPG submission (Section 30.3), and any Adopt-a-School pitch material.
+
+One loose end worth closing: `LICENSE` currently reads "Copyright (c) 2026 Theo van Stratum," not StratumCode — worth deciding whether the copyright line should name StratumCode Software Development Services instead (or in addition), for consistency with however Notipa is presented in grant/registration applications, before those applications go out.
+
+### 30.2 Funding path findings (current as of this revision)
+
+Proposal Section 9 sketched the funding landscape at a point-in-time; a follow-up check turned up real, time-sensitive updates worth recording rather than re-discovering later:
+
+- **DOST-PCIEERD Startup Grant Fund.** The 2026 cycle already closed (submissions ran 16 Feb – 15 Apr 2026); next cycle is likely ~Q1 2027. Eligibility requires the applicant to be DTI/SEC-registered for 1–7 years — StratumCode (registered 26 May 2025) already clears the one-year minimum today, so no waiting is needed on the registration side once the next cycle opens.
+- **UNICEF Innovation/Venture Fund.** Turned out to be a themed rolling series of calls, not one general "any social-good tech" fund — current live calls (Climate & Health, Blockchain solutions, Data Science & AI, youth misinformation/media literacy) don't fit a school-communication platform. Also requires a *registered company* as applicant (which StratumCode satisfies) and is explicitly *for-profit only* — worth monitoring the Office of Innovation's Open Call page for a future education- or child-safety-themed call rather than applying to a mismatched one now.
+- **Adopt-a-School Program (RA 8525).** Still the most actionable near-term option, but the applicant is the *sponsor* (a private business, itself SEC/CDA-registered a year+), not StratumCode or Notipa directly — the real task is finding one local business willing to sponsor the pilot school in exchange for the tax deduction (up to ~150% of the donation) and a formal DepEd MOA, not filing a government application. See the sponsor one-pager, Section 30.4.
+- **Digital Public Goods (DPG) registry.** Free, no business-registration requirement, but the review takes weeks to a few months — worth starting once the code is actually public (per the domain-launch timing in Section 8), not waiting for a funding call to attach it to. A full draft of the submission content, mapped against all 9 DPG Standard indicators, is at `notipa-dpg-submission-draft.md` in the project root — see Section 30.3.
+
+### 30.3 DPG submission draft
+
+`notipa-dpg-submission-draft.md` (project root) is a complete draft of the content the DPGA's application (submitted at [app.digitalpublicgoods.net](https://app.digitalpublicgoods.net/signup)) will ask for, written against the current DPG Standard's 9 indicators (confirmed directly against [digitalpublicgoods.net/submission-guide](https://www.digitalpublicgoods.net/submission-guide) rather than assumed from memory, since the exact evidence requirements per indicator matter). It flags three real gaps to close before actually submitting, not just fields to fill in:
+
+1. The `LICENSE` copyright-holder naming question from Section 30.1.
+2. **No privacy policy exists yet.** Indicator 7 (Privacy & Applicable Laws) requires a public link to one wherever PII is collected — and Notipa collects real PII (guardian/student names, phone numbers, dates of birth, guardian-student relationships). This is worth having regardless of the DPG submission, given this app's own stated priority on children's data (Section 1) — not just a box to check for DPGA.
+3. Indicator 6 (non-PII data extraction) is arguably satisfied as-is, since a self-hosted deployment gives the operating school full database access at all times (`pg_dump`, the SQLite file directly, or Django admin) rather than gatekeeping export behind an API the way a SaaS product would need to build separately — but a dedicated "Export to CSV" convenience feature would strengthen the application and is a reasonable small addition to the roadmap (Section 29) if it doesn't already fit elsewhere.
+
+### 30.4 Adopt-a-School sponsor pitch
+
+A one-page pitch document for a prospective sponsor business is at `Notipa-Adopt-a-School-Sponsor-Pitch.docx` (project root) — covers what Notipa is, the ask, the RA 8525 tax-incentive mechanics, and next steps. Intended to be handed to (or emailed to) a candidate local business, not filed with DepEd directly — the actual application route is requesting an endorsement from the DepEd Adopt-a-School Secretariat once a sponsor has agreed, per Section 9.2's original research.
+
+---
+
+## 31. Immediate Next Steps
 
 1. **Apply the migration for real.** The `0001_initial` migration has been validated against disposable databases repeatedly but has not yet touched your actual dev SQLite file:
    ```
@@ -781,7 +891,7 @@ Also confirmed: `manage.py check` and `manage.py makemigrations --check --dry-ru
    docker compose exec web python manage.py createsuperuser
    ```
    Then log in at `/accounts/login/`, use **Set Up a School** (Section 15, now also listing every existing school — Section 27) to create your first school, and confirm the dashboard, Classes (including the class detail view), Students (including the student detail view and guardian linking from both directions), Teachers, Guardians (including the guardian detail view), the guardian-facing dashboard/child view, Announcements (draft/publish/edit/delete, and the guardian read-tracking view), Homework (including uploading and downloading a real attachment), Fee Notices (including marking paid/waived/unpaid), Permission Slips (including responding as a guardian and watching the response roster update), Settings, and the User Manual — all work end-to-end against your real database. Worth specifically testing as a guardian account, not just as an admin — this is the first point where every guardian-facing page in the MVP has real content behind it.
-2. **Build the PWA install + web push notification layer** (Section 9, item 8) — the last remaining item from the original Phase 1 build sequence, and now unblocked: every content section it would notify a guardian about (Announcements, Homework, Fee Notices, Permission Slips) is real. This is the next piece of work.
+2. **Build the PWA install + web push notification layer** (Section 9, item 8) — the last remaining item from the original Phase 1 build sequence, and now unblocked: every content section it would notify a guardian about (Announcements, Homework, Fee Notices, Permission Slips) is real. Anchor the manifest and service worker scope to `app.notipa.org` per the domain decision in Section 8, not the root domain. This is the next piece of work.
 3. **Decide on real SMS-based guardian invites** (Section 10) — the passwordless flow per proposal Section 4.2, replacing the username/password interim from Section 19.
 4. **Keep the User Manual (Section 21) current** as new sections get built — it'll go stale the same way this handover plan would if sections were added without updating it.
 5. **Sketch a backup plan** for the production Postgres volume before it holds real data (Section 8) — still open, still not urgent while everything is local dev.
