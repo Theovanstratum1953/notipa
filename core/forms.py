@@ -2,7 +2,15 @@ from django import forms
 from django.contrib.auth import get_user_model
 from django.contrib.auth import password_validation
 
-from .models import Announcement, GuardianLink, School, SchoolClass, SchoolMembership, Student
+from .models import (
+    Announcement,
+    GuardianLink,
+    Homework,
+    School,
+    SchoolClass,
+    SchoolMembership,
+    Student,
+)
 
 User = get_user_model()
 
@@ -645,3 +653,42 @@ class AnnouncementForm(forms.ModelForm):
         )
         self.fields["school_class"].required = False
         self.fields["school_class"].empty_label = "School-wide (all classes)"
+
+
+class HomeworkForm(forms.ModelForm):
+    """
+    Creates or edits a Homework item, always scoped to one class — unlike
+    Announcement, the model has no school-wide option (`school_class` is
+    required, not nullable), which matches how homework actually works:
+    it's always assigned to a specific class, never the whole school.
+
+    `school` is passed in explicitly by the view (never taken from POST
+    data — see core.views.homework_new/homework_edit), same pattern as
+    every other school-scoped form here, and is used only to restrict
+    the `school_class` dropdown to that school's active classes — there
+    is no direct `school` field on Homework to set on the instance.
+
+    Unlike Announcement, there's no separate publish step: homework
+    becomes visible to a class's guardians as soon as it's saved, since
+    there's no draft/final distinction that makes sense for an
+    assignment the way it does for a school-wide message.
+    """
+
+    class Meta:
+        model = Homework
+        fields = ["school_class", "title", "description", "due_date", "attachment"]
+        widgets = {
+            "school_class": forms.Select(attrs={"class": "select"}),
+            "title": forms.TextInput(attrs={"class": "input"}),
+            "description": forms.Textarea(attrs={"class": "input", "rows": 5}),
+            "due_date": forms.DateInput(attrs={"class": "input", "type": "date"}),
+        }
+
+    def __init__(self, *args, school=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["school_class"].queryset = SchoolClass.objects.filter(
+            school=school, is_active=True
+        )
+        self.fields["description"].required = False
+        self.fields["due_date"].required = False
+        self.fields["attachment"].required = False

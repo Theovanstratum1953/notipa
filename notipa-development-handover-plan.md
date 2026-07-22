@@ -3,7 +3,7 @@
 **Prepared for:** Theo van Stratum / StratumCode
 **Date:** 22 July 2026
 **Stack:** Django 6.0.7, Python 3.14.x, SQLite (dev) → PostgreSQL (production), Docker throughout
-**Status:** Foundation, data model, UI shell, authentication, school-scoping, admin/teacher onboarding (school setup, teacher invites, classes, students, guardians, with full edit and soft-delete for teachers/classes/students/guardians, a class detail view showing its teacher and roster, student/guardian detail views for linking the two together from either direction, an in-app User Manual under Help in the sidebar, and a guardian-facing dashboard/child view), and Announcements (school-wide or class-scoped, draft/publish, guardian read-tracking) are all delivered and validated. Next up: Homework, the next content section, following the write/publish/read pattern Announcements just established.
+**Status:** Foundation, data model, UI shell, authentication, school-scoping, admin/teacher onboarding (school setup, teacher invites, classes, students, guardians, with full edit and soft-delete for teachers/classes/students/guardians, a class detail view showing its teacher and roster, student/guardian detail views for linking the two together from either direction, an in-app User Manual under Help in the sidebar, and a guardian-facing dashboard/child view), Announcements (school-wide or class-scoped, draft/publish, guardian read-tracking), and Homework (class-scoped, with optional due dates and file attachments) are all delivered and validated. Next up: Fee Notices and Permission Slips, the remaining Phase 1 content sections.
 
 ---
 
@@ -157,8 +157,8 @@ Worth putting this explicitly in whatever runbook or README ends up covering dep
 2. **Data model — done.** School/class/student/guardian multi-tenant schema with UUID primary keys, delivered and validated as the `core` app. See Section 11.
 3. **Admin and teacher onboarding flows — done.** Auth, school-scoping, in-app school setup (superusers only), teacher/admin invites, and Classes/Students list+create views are all real and working. See Sections 13–16. Still open within this item: guardian invites (SMS-based, proposal Section 4.2 — a separate, later mechanism, deliberately out of scope here since it needs SMS infrastructure this app doesn't have yet).
 4. **Announcements with read tracking — done.** See Section 23.
-5. **Homework posting.** ← next. (Model exists — `Homework`. Same placeholder situation as Fee Notices/Permission Slips below.)
-6. **Fee due-date notices** (Track 2 / private-school only — informational at MVP stage). (Model exists — `FeeNotice`. Same placeholder situation.)
+5. **Homework posting — done.** See Section 24.
+6. **Fee due-date notices** ← next. (Track 2 / private-school only — informational at MVP stage). (Model exists — `FeeNotice`. Same placeholder situation as Permission Slips below.)
 7. **Permission slips with response tracking.** (Model exists — `PermissionSlip`/`PermissionSlipResponse`. Same placeholder situation.)
 8. **PWA install + web push notifications** — last in the sequence since it depends on the rest of the data model existing first.
 
@@ -171,8 +171,8 @@ Estimate carried over from the proposal: 8–12 weeks solo. Having the data mode
 Being explicit about what exists and doesn't, so partial progress on a section isn't confused with that section being done:
 
 - **No guardian invite flow.** The SMS-based, no-app-store-account guardian invite described in proposal Section 4.2 doesn't exist yet — the `User.phone_number` field and passwordless-friendly design are in place, but nothing sends an SMS or issues a guardian a way to log in. Standard username/password login (Section 13) covers admins/teachers for now.
-- **Homework, Fee Notices, and Permission Slips are still placeholder pages**, not real views — see Section 12.2. The models behind all of them already exist and are tested (Section 11.2). Settings is also still a placeholder. Announcements (previously in this list too) is now real — see Section 23.
-- **File storage is local filesystem**, not yet the S3-compatible object storage the proposal specifies for production (Section 5) — fine for dev, needs revisiting before Homework/StudentRecord attachments are used with real files at any scale.
+- **Fee Notices and Permission Slips are still placeholder pages**, not real views — see Section 12.2. The models behind both already exist and are tested (Section 11.2). Settings is also still a placeholder. Announcements and Homework (previously in this list too) are now real — see Sections 23–24.
+- **File storage is local filesystem**, not yet the S3-compatible object storage the proposal specifies for production (Section 5) — fine for dev, needs revisiting before Homework/StudentRecord attachments are used with real files at any scale. `STORAGES['default']` was also missing from settings entirely until Section 24 added it (needed for the first real `FileField` — `Homework.attachment` — to save at all).
 - **`role_required` exists but is under-exercised.** It's used by Classes/Students (admin/teacher only) and tested directly, but none of the still-placeholder sections have had their real role restrictions decided yet (e.g. should guardians see Announcements read-only? Almost certainly yes — but that decision hasn't been made concrete in code yet).
 
 ---
@@ -614,7 +614,41 @@ Fresh superuser with no school sees the empty state and the "Set Up a School" bu
 
 ---
 
-## 24. Immediate Next Steps
+## 24. Homework — Delivered
+
+**The problem this fixes:** Homework was Phase 1 build sequence item 5 (Section 9) and had a real model (`Homework`, Section 11.2) since the very beginning, but only a placeholder page — no way to actually post one, and no way for a guardian to see one. It's also the app's first real file upload: `Homework.attachment` is a plain `FileField`, and getting a file to actually save exposed a pre-existing gap in `settings.py` — `STORAGES` only defined a `'staticfiles'` backend and had no `'default'` entry at all, so any `FileField` save would have failed outright, in production as much as in dev. That's fixed as part of this section (Section 24.2).
+
+### 24.1 Files delivered
+
+| File | Location | Status |
+|---|---|---|
+| `settings.py` | `notipa/settings.py` | Updated — added the missing `STORAGES['default']` (`FileSystemStorage`) entry; `'staticfiles'` was already there but `'default'` never was |
+| `urls.py` | `notipa/urls.py` | Updated — serves `MEDIA_URL`/`MEDIA_ROOT` via Django's `static()` helper when `DEBUG=True`; WhiteNoise (Section 12) only ever handled static assets, not user-uploaded media |
+| `forms.py` | `core/forms.py` | Updated — added `HomeworkForm` (`school` passed explicitly via `__init__`, `school_class` dropdown scoped to that school, same pattern as every other form in the app) |
+| `views.py` | `core/views.py` | Updated — added `homework_list` (dispatches by role, same pattern as `dashboard`/`announcements_list`), `homework_new`, `homework_edit`, `homework_delete`, `_guardian_homework`, `_get_homework_or_404`; `my_child_detail` now also fetches that child's recent homework |
+| `urls.py` | `core/urls.py` | Updated — the old `homework` placeholder route now points at `homework_list`; added `homework_new`/`homework_edit`/`homework_delete` |
+| `homework_list.html` | `templates/core/homework_list.html` | Delivered — admin/teacher view: every homework item with class, due date, attachment download link, and Edit/Delete per row |
+| `homework_form.html` | `templates/core/homework_form.html` | Delivered — create/edit form (`enctype="multipart/form-data"` for the file field), doubles as both since `HomeworkForm` accepts an `instance` |
+| `guardian_homework.html` | `templates/core/guardian_homework.html` | Delivered — guardian view: homework for their own children's classes only, with description and attachment download link |
+| `my_child_detail.html` | `templates/core/my_child_detail.html` | Updated — added a Recent Homework card for that specific child, and trimmed the "coming soon" note down to just Fee Notices/Permission Slips |
+| `wiki.html` | `templates/core/wiki.html` | Updated — new "Homework" section, and "What a guardian sees" updated to describe the real guardian Homework page instead of listing it as not-yet-built |
+| `tests.py` | `core/tests.py` | Updated — 12 new tests (`HomeworkCRUDTests`, `GuardianHomeworkVisibilityTests`), 90 total |
+
+### 24.2 Design decisions worth knowing about
+
+- **No draft/publish step, unlike Announcements.** `Homework` has no `published_at`-equivalent field — it's visible to the class's guardians the moment it's saved. This matches the model as it already existed (Section 11.2) rather than adding new fields; the form's help text says so explicitly so nobody assumes it behaves like Announcements.
+- **Always class-scoped, never school-wide.** `Homework.school_class` is a required (non-nullable) foreign key, so unlike Announcements there's no "school-wide" option in the form — homework only ever makes sense for one specific class.
+- **No soft delete, no read-tracking, same reasoning as Announcements.** `Homework` has no `is_active` field and nothing else references it, so `homework_delete` is a real, permanent delete with a confirm prompt. There's also no `HomeworkRead`-equivalent model — a guardian's Homework page just lists what's relevant, with no read/unread state to track.
+- **Guardian visibility reuses `_relevant_class_ids_for_guardian` from Announcements (Section 23.2) as-is.** No new helper was needed — the same "which classes do this guardian's own linked children belong to" computation applies identically to filtering Homework, confirmed by a dedicated test with two classes and two homework items.
+- **The `STORAGES['default']` fix is the most consequential change in this section, even though it's one line.** Before it, `settings.STORAGES` fully overrode Django's built-in defaults (Django doesn't merge a project's `STORAGES` dict with its own — it's all-or-nothing) and silently dropped the `'default'` entry every `FileField` needs to resolve a storage backend. `Homework.attachment` was the first `FileField` anything in this app actually tried to save through, which is what surfaced it — a test posting a file to `homework_new` failed with `InvalidStorageError: Could not find config for 'default'` until this was fixed. Worth an explicit mention because it would have silently broken in production too, not just in tests.
+
+### 24.3 Validation performed
+
+12 new automated tests (90 total, all passing): an admin or teacher creating homework attaches it to the right class with `created_by` set correctly; a guardian gets a 403 trying to create one; posting to another school's class is rejected by the form rather than creating a cross-school record; a real file upload via `SimpleUploadedFile` (run under an isolated, temporary `MEDIA_ROOT`, cleaned up afterward) saves and produces a working attachment; editing and deleting both work, and an admin at one school gets a 404 trying to edit another school's homework; the staff list is scoped to the current school. On the guardian side: a guardian sees exactly the homework for their own children's classes and nothing else (confirmed against a second class's homework item they should *not* see); a guardian with no linked children sees an empty list rather than erroring; `my_child_detail` shows the same filtered set for that specific child. Also confirmed: `manage.py check` and `manage.py makemigrations --check --dry-run core` are both clean (no migration needed — `Homework` already existed in `0001_initial`).
+
+---
+
+## 25. Immediate Next Steps
 
 1. **Apply the migration for real.** The `0001_initial` migration has been validated against disposable databases repeatedly but has not yet touched your actual dev SQLite file:
    ```
@@ -622,8 +656,9 @@ Fresh superuser with no school sees the empty state and the "Set Up a School" bu
    docker compose exec web python manage.py migrate
    docker compose exec web python manage.py createsuperuser
    ```
-   Then log in at `/accounts/login/`, use **Set Up a School** (Section 15) to create your first school, and confirm the dashboard, Classes (including the class detail view), Students (including the student detail view and guardian linking from both directions), Teachers, Guardians (including the guardian detail view), the guardian-facing dashboard/child view, Announcements (draft/publish/edit/delete, and the guardian read-tracking view), and the User Manual — all work end-to-end against your real database. Worth specifically testing as a guardian account, not just as an admin.
-2. **Build Homework** (Section 9, item 5) — the next content section; the `Homework` model already exists (Section 11.2), and Announcements just established the admin/teacher-write, guardian-read UI pattern (list + form + guardian-filtered view) every remaining section should follow.
+   Then log in at `/accounts/login/`, use **Set Up a School** (Section 15) to create your first school, and confirm the dashboard, Classes (including the class detail view), Students (including the student detail view and guardian linking from both directions), Teachers, Guardians (including the guardian detail view), the guardian-facing dashboard/child view, Announcements (draft/publish/edit/delete, and the guardian read-tracking view), Homework (including uploading and downloading a real attachment), and the User Manual — all work end-to-end against your real database. Worth specifically testing as a guardian account, not just as an admin.
+2. **Build Fee Notices** (Section 9, item 6) — the next content section; the `FeeNotice` model already exists (Section 11.2), and Announcements/Homework have established the admin/teacher-write, guardian-read UI pattern (list + form + guardian-filtered view) every remaining section should follow.
 3. **Decide on real SMS-based guardian invites** (Section 10) — the passwordless flow per proposal Section 4.2, replacing the username/password interim from Section 19.
 4. **Keep the User Manual (Section 21) current** as new sections get built — it'll go stale the same way this handover plan would if sections were added without updating it.
 5. **Sketch a backup plan** for the production Postgres volume before it holds real data (Section 8) — still open, still not urgent while everything is local dev.
+6. **Move media storage off local filesystem before real files at scale** (Section 10) — now that `Homework.attachment` is the first real `FileField` in production use, revisit the S3-compatible object storage swap flagged in the proposal (Section 5) sooner rather than later.

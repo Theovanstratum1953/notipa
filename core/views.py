@@ -11,6 +11,7 @@ from .forms import (
     GuardianEditForm,
     GuardianForm,
     GuardianLinkForm,
+    HomeworkForm,
     SchoolClassForm,
     SchoolForm,
     StudentForm,
@@ -22,6 +23,7 @@ from .models import (
     Announcement,
     AnnouncementRead,
     GuardianLink,
+    Homework,
     PermissionSlipResponse,
     SchoolClass,
     SchoolMembership,
@@ -127,20 +129,31 @@ def my_child_detail(request, pk):
         .filter(Q(school_class__isnull=True) | Q(school_class=student.school_class))
         .order_by("-published_at")[:5]
     )
+    homework_items = (
+        Homework.objects.filter(school_class=student.school_class)
+        .order_by("-created_at")[:5]
+        if student.school_class
+        else Homework.objects.none()
+    )
     return render(
         request,
         "core/my_child_detail.html",
-        {"link": link, "student": student, "announcements": announcements},
+        {
+            "link": link,
+            "student": student,
+            "announcements": announcements,
+            "homework_items": homework_items,
+        },
     )
 
 
 @login_required
 def placeholder(request, title, message):
     """Generic stand-in page for sidebar sections that don't have real
-    views yet (Homework, Fee Notices, Permission Slips, Settings) —
-    keeps the navigation shell fully clickable while those are built
-    out one at a time. Announcements (Phase 1 build sequence item 4)
-    is no longer one of them — see the Announcements section below."""
+    views yet (Fee Notices, Permission Slips, Settings) — keeps the
+    navigation shell fully clickable while those are built out one at
+    a time. Announcements and Homework (Phase 1 build sequence items 4
+    and 5) are no longer among them — see their own sections below."""
     return render(request, "core/placeholder.html", {"title": title, "message": message})
 
 
@@ -331,6 +344,121 @@ def announcement_mark_read(request, pk):
     )
     AnnouncementRead.objects.get_or_create(announcement=announcement, guardian=request.user)
     return redirect("core:announcements")
+
+
+# ---------------------------------------------------------------------
+# Homework — Phase 1 build sequence item 5, following the same
+# admin/teacher-write, guardian-read shape Announcements (Section 23)
+# established. The one real difference: Homework is always class-scoped
+# (the model's `school_class` isn't nullable — there's no "school-wide
+# homework" the way there's a school-wide announcement), and there's no
+# draft/publish split or read-tracking model here, so it's a simpler
+# feature than Announcements in both directions — it becomes visible to
+# a class's guardians the moment it's saved, and there's no per-guardian
+# "read" state to track.
+# ---------------------------------------------------------------------
+
+@login_required
+def homework_list(request):
+    """Dispatches by role, same pattern as announcements_list/dashboard."""
+    if request.school is None:
+        messages.error(request, "You need to be linked to a school to see homework.")
+        return redirect("core:dashboard")
+
+    if request.membership.role == SchoolMembership.Role.GUARDIAN:
+        return _guardian_homework(request)
+
+    homework_items = scope_to_school(
+        Homework.objects.select_related("school_class", "created_by"),
+        request,
+        field_name="school_class__school",
+    ).order_by("-created_at")
+    return render(request, "core/homework_list.html", {"homework_items": homework_items})
+
+
+def _guardian_homework(request):
+    class_ids = _relevant_class_ids_for_guardian(request)
+    homework_items = (
+        Homework.objects.filter(school_class_id__in=class_ids)
+        .select_related("school_class")
+        .order_by("-created_at")
+    )
+    return render(
+        request, "core/guardian_homework.html", {"homework_items": homework_items}
+    )
+
+
+@login_required
+@role_required(SchoolMembership.Role.ADMIN, SchoolMembership.Role.TEACHER)
+def homework_new(request):
+    if request.school is None:
+        messages.error(
+            request, "You need to be linked to a school before you can post homework."
+        )
+        return redirect("core:dashboard")
+
+    if request.method == "POST":
+        form = HomeworkForm(request.POST, request.FILES, school=request.school)
+        if form.is_valid():
+            homework = form.save(commit=False)
+            homework.created_by = request.user
+            homework.save()
+            messages.success(
+                request,
+                f"“{homework.title}” posted to {homework.school_class.name} — visible to "
+                f"that class's guardians now.",
+            )
+            return redirect("core:homework")
+    else:
+        form = HomeworkForm(school=request.school)
+
+    return render(request, "core/homework_form.html", {"form": form})
+
+
+def _get_homework_or_404(request, pk):
+    return get_object_or_404(
+        scope_to_school(
+            Homework.objects.all(), request, field_name="school_class__school"
+        ),
+        pk=pk,
+    )
+
+
+@login_required
+@role_required(SchoolMembership.Role.ADMIN, SchoolMembership.Role.TEACHER)
+def homework_edit(request, pk):
+    homework = _get_homework_or_404(request, pk)
+
+    if request.method == "POST":
+        form = HomeworkForm(
+            request.POST, request.FILES, instance=homework, school=request.school
+        )
+        if form.is_valid():
+            form.save()
+            messages.success(request, f"“{homework.title}” updated.")
+            return redirect("core:homework")
+    else:
+        form = HomeworkForm(instance=homework, school=request.school)
+
+    return render(
+        request, "core/homework_form.html", {"form": form, "homework": homework}
+    )
+
+
+@login_required
+@role_required(SchoolMembership.Role.ADMIN, SchoolMembership.Role.TEACHER)
+@require_POST
+def homework_delete(request, pk):
+    """
+    A real delete, same reasoning as announcement_delete: Homework has
+    no is_active field and nothing else references it, so there's no
+    history a soft delete would be protecting.
+    """
+    homework = _get_homework_or_404(request, pk)
+    title = homework.title
+    homework.delete()
+    messages.success(request, f"“{title}” deleted.")
+    return redirect("core:homework")
 
 
 @login_required

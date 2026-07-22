@@ -1,8 +1,22 @@
+import shutil
+import tempfile
+
+from django.conf import settings
 from django.contrib.auth import get_user_model
-from django.test import TestCase
+from django.core.files.uploadedfile import SimpleUploadedFile
+from django.test import TestCase, override_settings
 from django.urls import reverse
 
-from .models import Announcement, AnnouncementRead, GuardianLink, School, SchoolClass, SchoolMembership, Student
+from .models import (
+    Announcement,
+    AnnouncementRead,
+    GuardianLink,
+    Homework,
+    School,
+    SchoolClass,
+    SchoolMembership,
+    Student,
+)
 
 User = get_user_model()
 
@@ -1354,3 +1368,217 @@ class GuardianAnnouncementVisibilityTests(TestCase):
         response = self.client.get(reverse("core:my_child_detail", args=[self.my_child.pk]))
         titles = {a.title for a in response.context["announcements"]}
         self.assertEqual(titles, {"School closed Monday", "Grade 4 field trip"})
+
+
+@override_settings(MEDIA_ROOT=tempfile.mkdtemp())
+class HomeworkCRUDTests(TestCase):
+    """
+    Covers the admin/teacher side of Homework (Phase 1 build sequence
+    item 5): core.views.homework_list/homework_new/homework_edit/
+    homework_delete, and core.forms.HomeworkForm. Uses an isolated,
+    temporary MEDIA_ROOT (cleaned up in tearDownClass) so attachment
+    uploads during tests never touch the project's real media/ folder.
+    """
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(settings.MEDIA_ROOT, ignore_errors=True)
+        super().tearDownClass()
+
+    def setUp(self):
+        self.school_a = School.objects.create(name="School A", country="PH")
+        self.school_b = School.objects.create(name="School B", country="PH")
+
+        self.admin_a = User.objects.create_user(username="admin_a", password="pw12345!")
+        SchoolMembership.objects.create(
+            user=self.admin_a, school=self.school_a, role=SchoolMembership.Role.ADMIN
+        )
+        self.teacher_a = User.objects.create_user(username="teacher_a", password="pw12345!")
+        SchoolMembership.objects.create(
+            user=self.teacher_a, school=self.school_a, role=SchoolMembership.Role.TEACHER
+        )
+        self.guardian_a = User.objects.create_user(username="guardian_a", password="pw12345!")
+        SchoolMembership.objects.create(
+            user=self.guardian_a, school=self.school_a, role=SchoolMembership.Role.GUARDIAN
+        )
+        self.admin_b = User.objects.create_user(username="admin_b", password="pw12345!")
+        SchoolMembership.objects.create(
+            user=self.admin_b, school=self.school_b, role=SchoolMembership.Role.ADMIN
+        )
+
+        self.class_a = SchoolClass.objects.create(
+            school=self.school_a, name="Grade 4 - Sampaguita", academic_year="2026-2027"
+        )
+        self.class_b = SchoolClass.objects.create(
+            school=self.school_b, name="Grade 5 - Rosal", academic_year="2026-2027"
+        )
+
+    def test_new_homework_visible_immediately(self):
+        self.client.login(username="admin_a", password="pw12345!")
+        response = self.client.post(
+            reverse("core:homework_new"),
+            {
+                "school_class": str(self.class_a.pk),
+                "title": "Math worksheet",
+                "description": "Pages 10-12",
+                "due_date": "2026-08-01",
+            },
+        )
+        self.assertRedirects(response, reverse("core:homework"))
+        homework = Homework.objects.get(title="Math worksheet")
+        self.assertEqual(homework.created_by, self.admin_a)
+        self.assertEqual(homework.school_class, self.class_a)
+
+    def test_teacher_can_create_homework(self):
+        self.client.login(username="teacher_a", password="pw12345!")
+        response = self.client.post(
+            reverse("core:homework_new"),
+            {"school_class": str(self.class_a.pk), "title": "Reading log", "description": ""},
+        )
+        self.assertRedirects(response, reverse("core:homework"))
+        self.assertTrue(Homework.objects.filter(title="Reading log").exists())
+
+    def test_guardian_cannot_create_homework(self):
+        self.client.login(username="guardian_a", password="pw12345!")
+        response = self.client.get(reverse("core:homework_new"))
+        self.assertEqual(response.status_code, 403)
+
+    def test_cannot_assign_homework_to_other_school_class(self):
+        self.client.login(username="admin_a", password="pw12345!")
+        response = self.client.post(
+            reverse("core:homework_new"),
+            {"school_class": str(self.class_b.pk), "title": "Sneaky", "description": ""},
+        )
+        # class_b isn't in this admin's school_class queryset, so the
+        # form rejects it rather than creating a cross-school record.
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(Homework.objects.filter(title="Sneaky").exists())
+
+    def test_attachment_upload_and_download_link(self):
+        self.client.login(username="admin_a", password="pw12345!")
+        upload = SimpleUploadedFile(
+            "worksheet.txt", b"homework contents", content_type="text/plain"
+        )
+        response = self.client.post(
+            reverse("core:homework_new"),
+            {
+                "school_class": str(self.class_a.pk),
+                "title": "With attachment",
+                "description": "",
+                "attachment": upload,
+            },
+        )
+        self.assertRedirects(response, reverse("core:homework"))
+        homework = Homework.objects.get(title="With attachment")
+        self.assertTrue(homework.attachment.name)
+
+    def test_edit_homework(self):
+        homework = Homework.objects.create(
+            school_class=self.class_a, title="Old title", created_by=self.admin_a
+        )
+        self.client.login(username="admin_a", password="pw12345!")
+        response = self.client.post(
+            reverse("core:homework_edit", args=[homework.pk]),
+            {"school_class": str(self.class_a.pk), "title": "New title", "description": ""},
+        )
+        self.assertRedirects(response, reverse("core:homework"))
+        homework.refresh_from_db()
+        self.assertEqual(homework.title, "New title")
+
+    def test_delete_homework(self):
+        homework = Homework.objects.create(
+            school_class=self.class_a, title="Gone soon", created_by=self.admin_a
+        )
+        self.client.login(username="admin_a", password="pw12345!")
+        response = self.client.post(reverse("core:homework_delete", args=[homework.pk]))
+        self.assertRedirects(response, reverse("core:homework"))
+        self.assertFalse(Homework.objects.filter(pk=homework.pk).exists())
+
+    def test_cannot_edit_other_school_homework(self):
+        homework = Homework.objects.create(
+            school_class=self.class_b, title="Not yours", created_by=self.admin_b
+        )
+        self.client.login(username="admin_a", password="pw12345!")
+        response = self.client.get(reverse("core:homework_edit", args=[homework.pk]))
+        self.assertEqual(response.status_code, 404)
+
+    def test_staff_list_scoped_to_school(self):
+        Homework.objects.create(
+            school_class=self.class_a, title="School A homework", created_by=self.admin_a
+        )
+        Homework.objects.create(
+            school_class=self.class_b, title="School B homework", created_by=self.admin_b
+        )
+        self.client.login(username="admin_a", password="pw12345!")
+        response = self.client.get(reverse("core:homework"))
+        titles = {h.title for h in response.context["homework_items"]}
+        self.assertEqual(titles, {"School A homework"})
+
+
+@override_settings(MEDIA_ROOT=tempfile.mkdtemp())
+class GuardianHomeworkVisibilityTests(TestCase):
+    """
+    Covers the guardian side of Homework: core.views._guardian_homework.
+    A guardian should only see homework for classes their own children
+    are actually in — never another class's homework, even at the same
+    school.
+    """
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(settings.MEDIA_ROOT, ignore_errors=True)
+        super().tearDownClass()
+
+    def setUp(self):
+        self.school_a = School.objects.create(name="School A", country="PH")
+
+        self.admin_a = User.objects.create_user(username="admin_a", password="pw12345!")
+        SchoolMembership.objects.create(
+            user=self.admin_a, school=self.school_a, role=SchoolMembership.Role.ADMIN
+        )
+        self.guardian = User.objects.create_user(username="guardian_a", password="pw12345!")
+        SchoolMembership.objects.create(
+            user=self.guardian, school=self.school_a, role=SchoolMembership.Role.GUARDIAN
+        )
+
+        self.my_class = SchoolClass.objects.create(
+            school=self.school_a, name="Grade 4 - Sampaguita", academic_year="2026-2027"
+        )
+        self.other_class = SchoolClass.objects.create(
+            school=self.school_a, name="Grade 5 - Rosal", academic_year="2026-2027"
+        )
+        self.my_child = Student.objects.create(
+            school=self.school_a, school_class=self.my_class, first_name="Ana", last_name="Reyes"
+        )
+        GuardianLink.objects.create(
+            guardian=self.guardian, student=self.my_child, relationship=GuardianLink.Relationship.MOTHER
+        )
+
+        self.my_class_homework = Homework.objects.create(
+            school_class=self.my_class, title="Grade 4 worksheet", created_by=self.admin_a
+        )
+        self.other_class_homework = Homework.objects.create(
+            school_class=self.other_class, title="Grade 5 worksheet", created_by=self.admin_a
+        )
+
+    def test_guardian_sees_only_own_class_homework(self):
+        self.client.login(username="guardian_a", password="pw12345!")
+        response = self.client.get(reverse("core:homework"))
+        self.assertTemplateUsed(response, "core/guardian_homework.html")
+        titles = {h.title for h in response.context["homework_items"]}
+        self.assertEqual(titles, {"Grade 4 worksheet"})
+
+    def test_my_child_detail_shows_relevant_homework(self):
+        self.client.login(username="guardian_a", password="pw12345!")
+        response = self.client.get(reverse("core:my_child_detail", args=[self.my_child.pk]))
+        titles = {h.title for h in response.context["homework_items"]}
+        self.assertEqual(titles, {"Grade 4 worksheet"})
+
+    def test_guardian_with_no_children_sees_no_homework(self):
+        lonely_guardian = User.objects.create_user(username="guardian_c", password="pw12345!")
+        SchoolMembership.objects.create(
+            user=lonely_guardian, school=self.school_a, role=SchoolMembership.Role.GUARDIAN
+        )
+        self.client.login(username="guardian_c", password="pw12345!")
+        response = self.client.get(reverse("core:homework"))
+        self.assertEqual(list(response.context["homework_items"]), [])

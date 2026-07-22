@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+
+{% block title %}{% if homework %}Edit Homework{% else %}New Homework{% endif %} — Notipa{% endblock %}
+
+{% block breadcrumb %}
+  <a href="{% url 'core:homework' %}">Homework</a><span class="topbar__breadcrumb-sep">/</span><span class="topbar__breadcrumb-current">{% if homework %}Edit{% else %}New{% endif %}</span>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <span class="page-header__eyebrow">Communication</span>
+    <h1>{% if homework %}Edit Homework{% else %}New Homework{% endif %}</h1>
+    <p class="page-header__sub">Visible to the class's guardians as soon as you save — there's no separate publish step.</p>
+  </div>
+</div>
+
+<div class="card card--pad-lg" style="max-width: 560px;">
+  <form method="post" enctype="multipart/form-data">
+    {% csrf_token %}
+    <div class="field">
+      <label class="field__label" for="{{ form.school_class.id_for_label }}">Class</label>
+      {{ form.school_class }}
+      {% if form.school_class.errors %}<div class="field__hint text-brick">{{ form.school_class.errors|striptags }}</div>{% endif %}
+    </div>
+    <div class="field">
+      <label class="field__label" for="{{ form.title.id_for_label }}">Title</label>
+      {{ form.title }}
+      {% if form.title.errors %}<div class="field__hint text-brick">{{ form.title.errors|striptags }}</div>{% endif %}
+    </div>
+    <div class="field">
+      <label class="field__label" for="{{ form.description.id_for_label }}">Description</label>
+      {{ form.description }}
+    </div>
+    <div class="field-row">
+      <div class="field">
+        <label class="field__label" for="{{ form.due_date.id_for_label }}">Due Date</label>
+        {{ form.due_date }}
+      </div>
+      <div class="field">
+        <label class="field__label" for="{{ form.attachment.id_for_label }}">Attachment</label>
+        {{ form.attachment }}
+        {% if homework and homework.attachment %}
+          <div class="field__hint">Current file: <a href="{{ homework.attachment.url }}" target="_blank" rel="noopener">{{ homework.attachment.name }}</a></div>
+        {% endif %}
+      </div>
+    </div>
+    <div style="display:flex; gap:10px; margin-top: 22px;">
+      <button type="submit" class="btn btn--primary">{% if homework %}Save Changes{% else %}Post Homework{% endif %}</button>
+      <a href="{% url 'core:homework' %}" class="btn btn--secondary">Cancel</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+
+{% block title %}Homework — Notipa{% endblock %}
+
+{% block breadcrumb %}
+  <span class="topbar__breadcrumb-current">Homework</span>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <span class="page-header__eyebrow">Communication</span>
+    <h1>Homework</h1>
+    <p class="page-header__sub">Homework posted for your children's classes at {{ request.school.name }}.</p>
+  </div>
+</div>
+
+<div class="card">
+  <div class="list-group">
+    {% for h in homework_items %}
+    <div class="list-row">
+      <div class="list-row__icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+      </div>
+      <div class="list-row__body">
+        <div class="list-row__title">{{ h.title }}</div>
+        <div class="list-row__meta">
+          {{ h.school_class.name }}
+          {% if h.due_date %} · Due {{ h.due_date|date:"M j, Y" }}{% endif %}
+        </div>
+        {% if h.description %}<p style="margin: 8px 0 0;">{{ h.description|linebreaksbr }}</p>{% endif %}
+        {% if h.attachment %}
+          <p style="margin: 8px 0 0;"><a href="{{ h.attachment.url }}" target="_blank" rel="noopener">Download attachment</a></p>
+        {% endif %}
+      </div>
+    </div>
+    {% empty %}
+    <div class="empty-list">No homework posted yet.</div>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}

@@ -14,6 +14,8 @@ Including another URLconf
     1. Import the include() function: from django.urls import include, path
     2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
+from django.conf import settings
+from django.conf.urls.static import static
 from django.contrib import admin
 from django.urls import include, path
 
@@ -25,3 +27,13 @@ urlpatterns = [
     path('accounts/', include('django.contrib.auth.urls')),
     path('', include('core.urls', namespace='core')),
 ]
+
+# Serves uploaded files (e.g. Homework attachments — core.models.
+# Homework.attachment, the first real FileField this app uses) from
+# MEDIA_ROOT during development. Django never serves user-uploaded
+# media itself in production — that's WhiteNoise's job for static
+# assets only; a real deployment needs S3-compatible object storage or
+# equivalent for MEDIA (see the handover plan's "Not Yet Built" notes),
+# which is why this is gated on DEBUG rather than always-on.
+if settings.DEBUG:
+    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

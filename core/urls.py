@@ -31,19 +31,10 @@ urlpatterns = [
         views.announcement_mark_read,
         name="announcement_mark_read",
     ),
-    path(
-        "homework/",
-        views.placeholder,
-        {
-            "title": "Homework",
-            "message": (
-                "Homework posting with due dates and attachments will "
-                "appear here once the homework views are built (Phase 1 "
-                "build sequence, item 5). The Homework model already exists."
-            ),
-        },
-        name="homework",
-    ),
+    path("homework/", views.homework_list, name="homework"),
+    path("homework/new/", views.homework_new, name="homework_new"),
+    path("homework/<uuid:pk>/edit/", views.homework_edit, name="homework_edit"),
+    path("homework/<uuid:pk>/delete/", views.homework_delete, name="homework_delete"),
     path(
         "fees/",
         views.placeholder,

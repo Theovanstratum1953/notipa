@@ -11,7 +11,7 @@
   <div>
     <span class="page-header__eyebrow">Help</span>
     <h1>User Manual</h1>
-    <p class="page-header__sub">How to set up a school, manage the people in it — teachers, guardians, classes, and students — and post announcements.</p>
+    <p class="page-header__sub">How to set up a school, manage the people in it — teachers, guardians, classes, and students — and post announcements and homework.</p>
   </div>
 </div>
 
@@ -27,6 +27,7 @@
     <li style="margin-bottom: 6px;"><a href="#linking">Linking guardians and students</a></li>
     <li style="margin-bottom: 6px;"><a href="#archiving">Editing and archiving records</a></li>
     <li style="margin-bottom: 6px;"><a href="#announcements">Announcements</a></li>
+    <li style="margin-bottom: 6px;"><a href="#homework">Homework</a></li>
     <li style="margin-bottom: 6px;"><a href="#for-guardians">What a guardian sees</a></li>
   </ul>
 </div>
@@ -105,11 +106,21 @@
   <p>Guardians only ever see <em>published</em> announcements, and only the ones relevant to them: school-wide posts, plus posts for whichever class their own linked children are in. A guardian never sees drafts, or announcements aimed at a class their child isn't in.</p>
 </div>
 
+<div class="card card--pad-lg" id="homework" style="margin-bottom: 20px;">
+  <h2 style="margin-top:0;">Homework</h2>
+  <p>Open <strong>Homework</strong> in the sidebar (admins and teachers) to see every homework item at the current school.</p>
+  <p><strong>Posting homework:</strong> click <strong>New Homework</strong>, choose the class it's for (homework is always tied to one specific class — there's no school-wide homework), a title, an optional description, an optional due date, and an optional file attachment (a worksheet, a reading, anything a guardian might need to download). Unlike Announcements, there's no draft step — homework is visible to that class's guardians as soon as you save it.</p>
+  <p><strong>Editing:</strong> use <strong>Edit</strong> from the list to change the title, description, due date, or replace the attachment.</p>
+  <p><strong>Deleting:</strong> like Announcements, there's no archive here — <strong>Delete</strong> removes a homework item permanently, with a confirmation prompt first.</p>
+  <p>Guardians only see homework for classes their own linked children are actually in — never other classes at the same school, even ones they can otherwise see announcements for.</p>
+</div>
+
 <div class="card card--pad-lg" id="for-guardians">
   <h2 style="margin-top:0;">What a guardian sees</h2>
-  <p>Everything above except Announcements is for school staff. A guardian account sees something much simpler when they log in: their dashboard shows the child (or children) linked to their account at the current school, with each one's class and homeroom teacher. Clicking a child opens a read-only page with the same class/teacher information, plus that child's recent announcements — a guardian can't edit a student's details, archive anyone, or add/remove guardian links from their own account.</p>
+  <p>Everything above except Announcements and Homework is for school staff. A guardian account sees something much simpler when they log in: their dashboard shows the child (or children) linked to their account at the current school, with each one's class and homeroom teacher. Clicking a child opens a read-only page with the same class/teacher information, plus that child's recent announcements and recent homework — a guardian can't edit a student's details, archive anyone, or add/remove guardian links from their own account.</p>
   <p>A guardian's own <strong>Announcements</strong> page (same sidebar link, different content than staff see) lists every published, relevant announcement with a <strong>Mark as read</strong> button on each unread one.</p>
+  <p>A guardian's own <strong>Homework</strong> page lists every homework item posted for their children's classes, with the due date, description, and a download link for any attachment.</p>
   <p>If a guardian logs in and sees no children listed, it means nobody has linked their account to a student yet — a school admin or teacher needs to do that from the student's or guardian's own page (see <a href="#linking">Linking guardians and students</a>).</p>
-  <p>Homework, fee notices, and permission slips aren't real features yet (see the placeholder pages in the sidebar), so a guardian's experience is intentionally limited to what already exists — it'll grow as those features are built.</p>
+  <p>Fee notices and permission slips aren't real features yet (see the placeholder pages in the sidebar), so a guardian's experience is intentionally limited to what already exists — it'll grow as those features are built.</p>
 </div>
 {% endblock %}

@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+
+{% block title %}Homework — Notipa{% endblock %}
+
+{% block breadcrumb %}
+  <span class="topbar__breadcrumb-current">Homework</span>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <span class="page-header__eyebrow">Communication</span>
+    <h1>Homework</h1>
+    <p class="page-header__sub">{{ homework_items|length }} homework item{{ homework_items|length|pluralize }} at {{ request.school.name }}.</p>
+  </div>
+  <a href="{% url 'core:homework_new' %}" class="btn btn--primary">
+    <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+    New Homework
+  </a>
+</div>
+
+<div class="table-wrap">
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>Title</th>
+        <th>Class</th>
+        <th>Due</th>
+        <th>Attachment</th>
+        <th>Posted</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for h in homework_items %}
+      <tr>
+        <td class="cell--title">{{ h.title }}</td>
+        <td><a href="{% url 'core:class_detail' h.school_class.pk %}">{{ h.school_class.name }}</a></td>
+        <td>
+          {% if h.due_date %}
+            {{ h.due_date|date:"M j, Y" }}
+          {% else %}
+            <span class="text-dim">No due date</span>
+          {% endif %}
+        </td>
+        <td>
+          {% if h.attachment %}
+            <a href="{{ h.attachment.url }}" target="_blank" rel="noopener">Download</a>
+          {% else %}
+            <span class="text-dim">—</span>
+          {% endif %}
+        </td>
+        <td>{{ h.created_at|date:"M j, Y" }}</td>
+        <td style="white-space: nowrap;">
+          <a href="{% url 'core:homework_edit' h.pk %}" class="btn btn--secondary btn--sm">Edit</a>
+          <form method="post" action="{% url 'core:homework_delete' h.pk %}" style="display:inline;" onsubmit="return confirm('Delete “{{ h.title|escapejs }}”? This can\'t be undone.');">
+            {% csrf_token %}
+            <button type="submit" class="btn btn--danger btn--sm">Delete</button>
+          </form>
+        </td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="6"><div class="empty-list">No homework posted yet.</div></td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

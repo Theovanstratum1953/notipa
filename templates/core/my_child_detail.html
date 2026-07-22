@@ -60,8 +60,33 @@
   </div>
 </div>
 
+<div class="card card--pad-lg" style="max-width: 480px; margin-bottom: 20px;">
+  <div class="card__header">
+    <h2 class="card__title" style="margin:0;">Recent Homework</h2>
+    <a href="{% url 'core:homework' %}" class="card__link">View all</a>
+  </div>
+  <div class="list-group">
+    {% for h in homework_items %}
+    <div class="list-row">
+      <div class="list-row__icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+      </div>
+      <div class="list-row__body">
+        <div class="list-row__title">{{ h.title }}</div>
+        <div class="list-row__meta">
+          {% if h.due_date %}Due {{ h.due_date|date:"M j, Y" }}{% else %}No due date{% endif %}
+          {% if h.attachment %} · <a href="{{ h.attachment.url }}" target="_blank" rel="noopener">Attachment</a>{% endif %}
+        </div>
+      </div>
+    </div>
+    {% empty %}
+    <div class="empty-list">No homework posted yet.</div>
+    {% endfor %}
+  </div>
+</div>
+
 <div class="card card--pad-lg" style="max-width: 480px;">
   <h2 style="margin-top:0;">Coming soon</h2>
-  <p class="text-dim">Homework, fee notices, and permission slips for {{ student.first_name }} will appear here once those features are built.</p>
+  <p class="text-dim">Fee notices and permission slips for {{ student.first_name }} will appear here once those features are built.</p>
 </div>
 {% endblock %}
