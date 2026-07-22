@@ -11,7 +11,7 @@
   <div>
     <span class="page-header__eyebrow">Help</span>
     <h1>User Manual</h1>
-    <p class="page-header__sub">How to set up a school, manage the people in it — teachers, guardians, classes, and students — and post announcements and homework.</p>
+    <p class="page-header__sub">How to set up a school, manage the people in it — teachers, guardians, classes, and students — and post announcements, homework, fee notices, and permission slips.</p>
   </div>
 </div>
 
@@ -20,6 +20,7 @@
   <ul style="list-style: disc; padding-left: 20px; margin: 0;">
     <li style="margin-bottom: 6px;"><a href="#roles">Roles and how the app is scoped to your school</a></li>
     <li style="margin-bottom: 6px;"><a href="#school-setup">Setting up a school</a></li>
+    <li style="margin-bottom: 6px;"><a href="#settings">Settings</a></li>
     <li style="margin-bottom: 6px;"><a href="#teachers">Teachers</a></li>
     <li style="margin-bottom: 6px;"><a href="#guardians">Guardians</a></li>
     <li style="margin-bottom: 6px;"><a href="#classes">Classes</a></li>
@@ -28,6 +29,8 @@
     <li style="margin-bottom: 6px;"><a href="#archiving">Editing and archiving records</a></li>
     <li style="margin-bottom: 6px;"><a href="#announcements">Announcements</a></li>
     <li style="margin-bottom: 6px;"><a href="#homework">Homework</a></li>
+    <li style="margin-bottom: 6px;"><a href="#fees">Fee Notices</a></li>
+    <li style="margin-bottom: 6px;"><a href="#permission-slips">Permission Slips</a></li>
     <li style="margin-bottom: 6px;"><a href="#for-guardians">What a guardian sees</a></li>
   </ul>
 </div>
@@ -43,7 +46,14 @@
   <h2 style="margin-top:0;">Setting up a school</h2>
   <p>Creating a brand-new school is a one-time, platform-level action, so it's restricted to superusers (the technical account created when the app was first installed) rather than regular admins — otherwise anyone could spin up an unrelated school inside the same system.</p>
   <p>If you're a superuser: use <strong>Set Up a School</strong> under Admin in the sidebar (or the button shown on the dashboard if you're not linked to any school yet). Fill in the school's name, country, default language, timezone, tier (Free for a public school, Paid for a licensed private school), and which month its academic year starts in. Submitting the form does two things at once: it creates the school, and it makes you that school's first admin, so you land on a working dashboard immediately rather than having to set up your own access afterward.</p>
-  <p>From there, add teachers, guardians, classes, and students using the sections below. If you need a second school (a different campus, or an unrelated school entirely), the same "Set Up a School" link is always available under Admin.</p>
+  <p>From there, add teachers, guardians, classes, and students using the sections below. If you need a second school (a different campus, or an unrelated school entirely), the same "Set Up a School" link is always available under Admin. The Set Up a School page also lists every school already in the system, so you can check one doesn't already exist before creating a near-duplicate.</p>
+</div>
+
+<div class="card card--pad-lg" id="settings" style="margin-bottom: 20px;">
+  <h2 style="margin-top:0;">Settings</h2>
+  <p>Open <strong>Settings</strong> under Admin in the sidebar (admins only) to edit your current school's own profile: its name, country code, default language, timezone, and which month its academic year starts in.</p>
+  <p>This edits whichever school is currently active for you — if you belong to more than one school, use the school switcher in the top-right first, then open Settings.</p>
+  <p>The school's <strong>tier</strong> (Free/Track 1 or Paid/Track 2) is shown here but can't be changed from this page — that's a licensing decision handled by the platform operator, not something a school changes for itself.</p>
 </div>
 
 <div class="card card--pad-lg" id="teachers" style="margin-bottom: 20px;">
@@ -115,12 +125,33 @@
   <p>Guardians only see homework for classes their own linked children are actually in — never other classes at the same school, even ones they can otherwise see announcements for.</p>
 </div>
 
+<div class="card card--pad-lg" id="fees" style="margin-bottom: 20px;">
+  <h2 style="margin-top:0;">Fee Notices</h2>
+  <p>Open <strong>Fee Notices</strong> in the sidebar (admins and teachers) to see every fee notice at the current school. This is informational only — <strong>no payments are processed in the app</strong>; it's a way to let a family know a fee is due and track whether it's been settled.</p>
+  <p><strong>Posting a fee notice:</strong> click <strong>New Fee Notice</strong>, pick the student it applies to (a fee notice always belongs to one specific student, not a whole class or the whole school), a title (e.g. "Term 2 tuition"), an optional description, the amount and currency, and a due date. It's visible to that student's guardians as soon as you save it.</p>
+  <p><strong>Marking a fee as paid or waived:</strong> use the <strong>Mark Paid</strong> or <strong>Waive</strong> button on the Fee Notices list. This is a separate action from editing, on purpose — changing the amount or due date and marking something as settled are different enough actions that keeping them apart avoids accidentally flipping the status while fixing a typo. Use <strong>Mark Unpaid</strong> to reverse either one if it was set by mistake.</p>
+  <p><strong>Editing:</strong> use <strong>Edit</strong> from the list to change the student, title, description, amount, currency, or due date. The status itself isn't changed from the edit form — use the Mark Paid/Waive/Mark Unpaid buttons instead.</p>
+  <p><strong>Deleting:</strong> like Announcements and Homework, there's no archive here — <strong>Delete</strong> removes a fee notice permanently, with a confirmation prompt first.</p>
+  <p>A guardian only ever sees fee notices for their own linked children, never another family's.</p>
+</div>
+
+<div class="card card--pad-lg" id="permission-slips" style="margin-bottom: 20px;">
+  <h2 style="margin-top:0;">Permission Slips</h2>
+  <p>Open <strong>Permission Slips</strong> in the sidebar (admins and teachers) to see every permission slip at the current school, along with how many guardians have said yes, said no, or haven't responded yet.</p>
+  <p><strong>Posting a permission slip:</strong> click <strong>New Permission Slip</strong> and fill in a title (e.g. "Museum field trip"), an optional description, an audience — "School-wide" or a specific class — and optional event and response-deadline dates. Saving it automatically sets up a response to track for every active student in that audience who has at least one guardian linked — nothing further to set up.</p>
+  <p><strong>Tracking responses:</strong> click a permission slip's title (or <strong>View</strong>) to see every student's response, who responded, and when — a real roster, not just a count. Editing a slip later (e.g. widening it to more classes) automatically adds tracking for any newly-eligible students without disturbing responses that already came in.</p>
+  <p><strong>Editing:</strong> use <strong>Edit</strong> from the list to change the title, description, audience, or dates.</p>
+  <p><strong>Deleting:</strong> like Announcements, Homework, and Fee Notices, there's no archive here — <strong>Delete</strong> removes a permission slip permanently, along with its response records, with a confirmation prompt first.</p>
+  <p>A guardian sees a permission slip for each of their own children it applies to, and can respond <strong>Yes</strong> or <strong>No</strong> with an optional note — they can change their answer any time by submitting again. A guardian only ever sees and responds for their own linked children, never another family's.</p>
+</div>
+
 <div class="card card--pad-lg" id="for-guardians">
   <h2 style="margin-top:0;">What a guardian sees</h2>
-  <p>Everything above except Announcements and Homework is for school staff. A guardian account sees something much simpler when they log in: their dashboard shows the child (or children) linked to their account at the current school, with each one's class and homeroom teacher. Clicking a child opens a read-only page with the same class/teacher information, plus that child's recent announcements and recent homework — a guardian can't edit a student's details, archive anyone, or add/remove guardian links from their own account.</p>
+  <p>Everything above except Announcements, Homework, Fee Notices, and Permission Slips is for school staff. A guardian account sees something much simpler when they log in: their dashboard shows the child (or children) linked to their account at the current school, with each one's class and homeroom teacher. Clicking a child opens a read-only page with the same class/teacher information, plus that child's recent announcements, recent homework, recent fee notices, and recent permission slip status — a guardian can't edit a student's details, archive anyone, or add/remove guardian links from their own account.</p>
   <p>A guardian's own <strong>Announcements</strong> page (same sidebar link, different content than staff see) lists every published, relevant announcement with a <strong>Mark as read</strong> button on each unread one.</p>
   <p>A guardian's own <strong>Homework</strong> page lists every homework item posted for their children's classes, with the due date, description, and a download link for any attachment.</p>
+  <p>A guardian's own <strong>Fee Notices</strong> page lists every fee notice for their own children, with the amount, due date, description, and whether it's currently unpaid, paid, or waived. Like everywhere else in the app, no payments are taken here — it's informational only.</p>
+  <p>A guardian's own <strong>Permission Slips</strong> page lists every permission slip for their own children, with a <strong>Yes</strong>/<strong>No</strong> button and an optional notes field for each one still awaiting a response — and shows their existing answer for ones they've already responded to, which they can change any time by submitting again.</p>
   <p>If a guardian logs in and sees no children listed, it means nobody has linked their account to a student yet — a school admin or teacher needs to do that from the student's or guardian's own page (see <a href="#linking">Linking guardians and students</a>).</p>
-  <p>Fee notices and permission slips aren't real features yet (see the placeholder pages in the sidebar), so a guardian's experience is intentionally limited to what already exists — it'll grow as those features are built.</p>
 </div>
 {% endblock %}

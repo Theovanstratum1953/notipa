@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+
+{% block title %}Fee Notices — Notipa{% endblock %}
+
+{% block breadcrumb %}
+  <span class="topbar__breadcrumb-current">Fee Notices</span>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <span class="page-header__eyebrow">Communication</span>
+    <h1>Fee Notices</h1>
+    <p class="page-header__sub">{{ fee_notices|length }} fee notice{{ fee_notices|length|pluralize:"s" }} at {{ request.school.name }}. Informational only — no payments are processed here.</p>
+  </div>
+  <a href="{% url 'core:fee_notice_new' %}" class="btn btn--primary">
+    <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+    New Fee Notice
+  </a>
+</div>
+
+<div class="table-wrap">
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>Title</th>
+        <th>Student</th>
+        <th>Amount</th>
+        <th>Due</th>
+        <th>Status</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for f in fee_notices %}
+      <tr>
+        <td class="cell--title">{{ f.title }}</td>
+        <td><a href="{% url 'core:student_detail' f.student.pk %}">{{ f.student.first_name }} {{ f.student.last_name }}</a></td>
+        <td>{{ f.currency }} {{ f.amount }}</td>
+        <td>{{ f.due_date|date:"M j, Y" }}</td>
+        <td>
+          <span class="tag {% if f.status == 'paid' %}tag--active{% elif f.status == 'waived' %}tag--neutral{% else %}tag--warning{% endif %}"><span class="tag__eyelet"></span>{{ f.get_status_display }}</span>
+        </td>
+        <td style="white-space: nowrap;">
+          <a href="{% url 'core:fee_notice_edit' f.pk %}" class="btn btn--secondary btn--sm">Edit</a>
+          {% if f.status != "paid" %}
+          <form method="post" action="{% url 'core:fee_notice_mark_paid' f.pk %}" style="display:inline;">
+            {% csrf_token %}
+            <button type="submit" class="btn btn--secondary btn--sm">Mark Paid</button>
+          </form>
+          {% endif %}
+          {% if f.status != "waived" %}
+          <form method="post" action="{% url 'core:fee_notice_mark_waived' f.pk %}" style="display:inline;">
+            {% csrf_token %}
+            <button type="submit" class="btn btn--secondary btn--sm">Waive</button>
+          </form>
+          {% endif %}
+          {% if f.status != "unpaid" %}
+          <form method="post" action="{% url 'core:fee_notice_mark_unpaid' f.pk %}" style="display:inline;">
+            {% csrf_token %}
+            <button type="submit" class="btn btn--secondary btn--sm">Mark Unpaid</button>
+          </form>
+          {% endif %}
+          <form method="post" action="{% url 'core:fee_notice_delete' f.pk %}" style="display:inline;" onsubmit="return confirm('Delete “{{ f.title|escapejs }}”? This can\'t be undone.');">
+            {% csrf_token %}
+            <button type="submit" class="btn btn--danger btn--sm">Delete</button>
+          </form>
+        </td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="6"><div class="empty-list">No fee notices posted yet.</div></td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

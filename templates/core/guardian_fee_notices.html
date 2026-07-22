@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+
+{% block title %}Fee Notices — Notipa{% endblock %}
+
+{% block breadcrumb %}
+  <span class="topbar__breadcrumb-current">Fee Notices</span>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <span class="page-header__eyebrow">Communication</span>
+    <h1>Fee Notices</h1>
+    <p class="page-header__sub">Fee notices for your children at {{ request.school.name }}. Informational only — no payments are processed here.</p>
+  </div>
+</div>
+
+<div class="card">
+  <div class="list-group">
+    {% for f in fee_notices %}
+    <div class="list-row">
+      <div class="list-row__icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg>
+      </div>
+      <div class="list-row__body">
+        <div class="list-row__title">{{ f.title }} — {{ f.student.first_name }} {{ f.student.last_name }}</div>
+        <div class="list-row__meta">
+          {{ f.currency }} {{ f.amount }} · Due {{ f.due_date|date:"M j, Y" }} ·
+          <span class="tag {% if f.status == 'paid' %}tag--active{% elif f.status == 'waived' %}tag--neutral{% else %}tag--warning{% endif %}"><span class="tag__eyelet"></span>{{ f.get_status_display }}</span>
+        </div>
+        {% if f.description %}<p style="margin: 8px 0 0;">{{ f.description|linebreaksbr }}</p>{% endif %}
+      </div>
+    </div>
+    {% empty %}
+    <div class="empty-list">No fee notices yet.</div>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}

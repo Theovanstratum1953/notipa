@@ -3,7 +3,7 @@
 **Prepared for:** Theo van Stratum / StratumCode
 **Date:** 22 July 2026
 **Stack:** Django 6.0.7, Python 3.14.x, SQLite (dev) → PostgreSQL (production), Docker throughout
-**Status:** Foundation, data model, UI shell, authentication, school-scoping, admin/teacher onboarding (school setup, teacher invites, classes, students, guardians, with full edit and soft-delete for teachers/classes/students/guardians, a class detail view showing its teacher and roster, student/guardian detail views for linking the two together from either direction, an in-app User Manual under Help in the sidebar, and a guardian-facing dashboard/child view), Announcements (school-wide or class-scoped, draft/publish, guardian read-tracking), and Homework (class-scoped, with optional due dates and file attachments) are all delivered and validated. Next up: Fee Notices and Permission Slips, the remaining Phase 1 content sections.
+**Status:** Foundation, data model, UI shell, authentication, school-scoping, admin/teacher onboarding (school setup — now also listing every school in the system, teacher invites, classes, students, guardians, with full edit and soft-delete for teachers/classes/students/guardians, a class detail view showing its teacher and roster, student/guardian detail views for linking the two together from either direction, an in-app User Manual under Help in the sidebar, and a guardian-facing dashboard/child view), and all four Phase 1 Communication sections — Announcements (school-wide or class-scoped, draft/publish, guardian read-tracking), Homework (class-scoped, with optional due dates and file attachments), Fee Notices (per-student, informational only, no payment processing), and Permission Slips (school-wide or class-scoped, with real per-student guardian response tracking) — are all delivered and validated. Settings (editing a school's own profile) is also delivered. **The web MVP — every Phase 1 content section from the proposal — is functionally complete.** Next up: the PWA install + web push notification layer (Phase 1 build sequence item 8), the last item before the carried-over open items (SMS guardian invites, Postgres backups, S3-compatible media storage).
 
 ---
 
@@ -158,11 +158,11 @@ Worth putting this explicitly in whatever runbook or README ends up covering dep
 3. **Admin and teacher onboarding flows — done.** Auth, school-scoping, in-app school setup (superusers only), teacher/admin invites, and Classes/Students list+create views are all real and working. See Sections 13–16. Still open within this item: guardian invites (SMS-based, proposal Section 4.2 — a separate, later mechanism, deliberately out of scope here since it needs SMS infrastructure this app doesn't have yet).
 4. **Announcements with read tracking — done.** See Section 23.
 5. **Homework posting — done.** See Section 24.
-6. **Fee due-date notices** ← next. (Track 2 / private-school only — informational at MVP stage). (Model exists — `FeeNotice`. Same placeholder situation as Permission Slips below.)
-7. **Permission slips with response tracking.** (Model exists — `PermissionSlip`/`PermissionSlipResponse`. Same placeholder situation.)
-8. **PWA install + web push notifications** — last in the sequence since it depends on the rest of the data model existing first.
+6. **Fee due-date notices — done.** Track 2 / private-school only, informational — no payment processing. See Section 25.
+7. **Permission slips with response tracking — done.** Real per-student guardian Yes/No responses, not just the model existing. See Section 26.
+8. **PWA install + web push notifications** ← next, and the last Phase 1 build-sequence item. Depends on the rest of the data model and content sections existing first, which is now the case.
 
-Estimate carried over from the proposal: 8–12 weeks solo. Having the data model, UI shell, auth/scoping layer, and onboarding pattern already built and proven ahead of items 4–7 should make each of those meaningfully faster than a from-scratch estimate would suggest — every one of them follows the same shape now established by Classes/Students (a scoped list view, a role-restricted create view, a school-scoped ModelForm).
+Estimate carried over from the proposal: 8–12 weeks solo. Having the data model, UI shell, auth/scoping layer, and onboarding pattern already built and proven ahead of items 4–7 held up as expected — every one of Announcements, Homework, Fee Notices, and Permission Slips followed the same shape established by Classes/Students (a scoped list view, a role-restricted create view, a school-scoped ModelForm), and each did land faster than a from-scratch estimate would suggest. Settings (Section 28) and the Set Up a School schools-list addition (Section 27) were smaller, unplanned additions layered on top once the pattern was already proven. With items 1–7 done, **the web MVP is functionally complete** — item 8 (PWA/push) is the only remaining item from the original Phase 1 sequence.
 
 ---
 
@@ -170,10 +170,11 @@ Estimate carried over from the proposal: 8–12 weeks solo. Having the data mode
 
 Being explicit about what exists and doesn't, so partial progress on a section isn't confused with that section being done:
 
-- **No guardian invite flow.** The SMS-based, no-app-store-account guardian invite described in proposal Section 4.2 doesn't exist yet — the `User.phone_number` field and passwordless-friendly design are in place, but nothing sends an SMS or issues a guardian a way to log in. Standard username/password login (Section 13) covers admins/teachers for now.
-- **Fee Notices and Permission Slips are still placeholder pages**, not real views — see Section 12.2. The models behind both already exist and are tested (Section 11.2). Settings is also still a placeholder. Announcements and Homework (previously in this list too) are now real — see Sections 23–24.
+- **No guardian invite flow.** The SMS-based, no-app-store-account guardian invite described in proposal Section 4.2 doesn't exist yet — the `User.phone_number` field and passwordless-friendly design are in place, but nothing sends an SMS or issues a guardian a way to log in. Standard username/password login (Section 13) covers admins/teachers (and, per Sections 19/26, guardians) for now.
+- **No PWA install or web push notifications** (Phase 1 build sequence item 8) — the last remaining item from the original Phase 1 scope. Every content section it would notify guardians about now exists, so this is unblocked and next.
 - **File storage is local filesystem**, not yet the S3-compatible object storage the proposal specifies for production (Section 5) — fine for dev, needs revisiting before Homework/StudentRecord attachments are used with real files at any scale. `STORAGES['default']` was also missing from settings entirely until Section 24 added it (needed for the first real `FileField` — `Homework.attachment` — to save at all).
-- **`role_required` exists but is under-exercised.** It's used by Classes/Students (admin/teacher only) and tested directly, but none of the still-placeholder sections have had their real role restrictions decided yet (e.g. should guardians see Announcements read-only? Almost certainly yes — but that decision hasn't been made concrete in code yet).
+- **Production backups still not designed** — see Section 8's note, carried over unchanged across every revision of this document so far. Still no urgency while everything is local dev, but it should exist before real guardian/student data is in the system.
+- **Fee Notices, Permission Slips, and Settings are no longer in this list** — all three are real, tested views as of this revision. See Sections 25, 26, and 28. Every Phase 1 sidebar section (Announcements, Homework, Fee Notices, Permission Slips, Settings) is now a real view; nothing routes to the generic placeholder page anymore, though `core.views.placeholder` is kept as ready-made scaffolding for whatever the PWA/push work turns out to need.
 
 ---
 
@@ -251,8 +252,8 @@ Theo supplied a hand-rolled CSS design system (originally written for a differen
 
 ### 12.2 What's real vs. placeholder right now
 
-- **Real:** the sidebar/topbar shell, the Dashboard (school-scoped), the login page, and — as of Sections 14/15 — Classes, Students, and (superusers only) School Setup.
-- **Placeholder:** Announcements, Homework, Fee Notices, Permission Slips, and Settings still route to real URLs and render a proper "not built yet" page (the CSS's `.empty-state` pattern) rather than a 404. Each placeholder's message states which Phase 1 build-sequence item (Section 9) will replace it.
+- **Real:** the sidebar/topbar shell, the Dashboard (school-scoped, with a role-based guardian branch), the login page, School Setup (superusers only, now also listing every school in the system — Section 27), Settings (admins only — Section 28), Classes, Students, Teachers, Guardians, guardian-student linking, the guardian-facing dashboard/child view, the User Manual, and all four Communication sections — Announcements, Homework, Fee Notices, and Permission Slips (Sections 23–26). This is every Phase 1 sidebar section.
+- **Placeholder:** none currently. `core.views.placeholder` (the generic "not built yet" page using the CSS's `.empty-state` pattern) is unused by any route as of this revision, but is kept in place as ready-made scaffolding for whatever the next section — PWA/push (Section 9, item 8) — turns out to need as a stand-in while it's being built.
 
 ### 12.3 Sidebar navigation structure
 
@@ -648,7 +649,130 @@ Fresh superuser with no school sees the empty state and the "Set Up a School" bu
 
 ---
 
-## 25. Immediate Next Steps
+## 25. Fee Notices — Delivered
+
+**The problem this fixes:** Fee Notices was Phase 1 build sequence item 6 (Section 9) and had a real model (`FeeNotice`, Section 11.2) since the very beginning, but only a placeholder page. Track 2 / private-school only, and explicitly informational — proposal Section 4.3 keeps payment processing out of v1 entirely, so nothing here ever touches money movement, only a status (unpaid/paid/waived) an admin or teacher sets by hand.
+
+### 25.1 Files delivered
+
+| File | Location | Status |
+|---|---|---|
+| `forms.py` | `core/forms.py` | Updated — added `FeeNoticeForm` |
+| `views.py` | `core/views.py` | Updated — added `fee_notices_list` (dispatches by role, same pattern as `announcements_list`/`homework_list`), `fee_notice_new`, `fee_notice_edit`, `fee_notice_delete`, `_guardian_fee_notices`, `fee_notice_mark_paid`/`fee_notice_mark_waived`/`fee_notice_mark_unpaid`; `my_child_detail` now also fetches that child's recent fee notices |
+| `urls.py` | `core/urls.py` | Updated — the old `fees` placeholder route now points at `fee_notices_list`; added `fee_notice_new`/`fee_notice_edit`/`fee_notice_delete`/`fee_notice_mark_paid`/`fee_notice_mark_waived`/`fee_notice_mark_unpaid` |
+| `fee_notices_list.html` | `templates/core/fee_notices_list.html` | Delivered — admin/teacher view: every fee notice with student, amount, due date, status, and Edit/Mark Paid/Waive/Mark Unpaid/Delete per row |
+| `fee_notice_form.html` | `templates/core/fee_notice_form.html` | Delivered — create/edit form, doubles as both since `FeeNoticeForm` accepts an `instance` |
+| `guardian_fee_notices.html` | `templates/core/guardian_fee_notices.html` | Delivered — guardian view: fee notices for their own children only, with amount, due date, and status |
+| `my_child_detail.html` | `templates/core/my_child_detail.html` | Updated — added a Recent Fee Notices card for that specific child |
+| `wiki.html` | `templates/core/wiki.html` | Updated — new "Fee Notices" section, and "What a guardian sees" updated to describe the real guardian Fee Notices page |
+| `tests.py` | `core/tests.py` | Updated — 14 new tests (`FeeNoticeCRUDTests`, `GuardianFeeNoticeVisibilityTests`), 104 total at this point |
+
+### 25.2 Design decisions worth knowing about
+
+- **Always per-student, never per-class or school-wide.** Unlike Announcements/Homework/Permission Slips, `FeeNotice.student` is a required foreign key — a fee is owed by a specific family, not assigned to a whole class. `FeeNoticeForm`'s `student` dropdown is scoped to the requesting admin/teacher's school and to active students only (an archived student almost certainly shouldn't get a new fee notice).
+- **Status changes are a separate action from editing, on purpose.** `FeeNoticeForm` deliberately excludes `status` — editing the amount or due date and marking something paid/waived are different enough actions that conflating them into one form risks an accidental status flip while fixing a typo. `fee_notice_mark_paid`/`mark_waived`/`mark_unpaid` are dedicated, one-click POST actions instead, the same split Announcements' publish/unpublish already established.
+- **No draft step, unlike Announcements.** A fee notice is visible to that student's guardians as soon as it's saved — there's no "not ready yet" state that makes sense for a fee the way it does for a school-wide message.
+- **No soft delete, same reasoning as Announcements/Homework.** `FeeNotice` has no `is_active` field and nothing else references it, so `fee_notice_delete` is a real, permanent delete with a confirmation prompt.
+
+### 25.3 Validation performed
+
+14 new automated tests (104 total, all passing): a new fee notice is scoped to the right school and student, with `created_by` set and `status` defaulting to unpaid; a teacher can also create one; a guardian gets a 403; posting to another school's student is rejected by the form; an archived student is excluded from the dropdown; editing never touches status; deleting removes it permanently; marking paid/waived/unpaid round-trips correctly and a guardian gets a 403 attempting it; an admin at one school gets a 404 editing another school's fee notice; the staff list is scoped to the current school. On the guardian side: a guardian sees exactly the fee notices for their own children and nothing else; `my_child_detail` shows the same filtered set for that specific child; a guardian with no linked children sees an empty list.
+
+Also confirmed: `manage.py check` and `manage.py makemigrations --check --dry-run core` are both clean (no migration needed — `FeeNotice` already existed in `0001_initial`).
+
+---
+
+## 26. Permission Slips — Delivered
+
+**The problem this fixes:** Permission Slips was Phase 1 build sequence item 7 (Section 9), the last of the four Communication sections, and had real models (`PermissionSlip`/`PermissionSlipResponse`, Section 11.2) since the beginning, but only a placeholder page — no way to post one or track a guardian's response. This is also the section that finally puts real data behind the dashboard's "Pending Responses" metric tile (Section 12), which had been counting `PermissionSlipResponse` rows with `response=PENDING` since Section 13 with nothing yet generating them.
+
+### 26.1 Files delivered
+
+| File | Location | Status |
+|---|---|---|
+| `forms.py` | `core/forms.py` | Updated — added `PermissionSlipForm` |
+| `views.py` | `core/views.py` | Updated — added `_sync_permission_slip_responses` (the response-row generator, see 26.2), `permission_slips_list` (dispatches by role), `permission_slip_new`, `permission_slip_detail`, `permission_slip_edit`, `permission_slip_delete`, `permission_slip_respond`, `_guardian_permission_slips`; `my_child_detail` now also fetches that child's recent permission-slip responses |
+| `urls.py` | `core/urls.py` | Updated — the old `permission_slips` placeholder route now points at `permission_slips_list`; added `permission_slip_new`/`permission_slip_detail`/`permission_slip_edit`/`permission_slip_delete`/`permission_slip_respond` |
+| `permission_slips_list.html` | `templates/core/permission_slips_list.html` | Delivered — admin/teacher view: every slip with audience, event/deadline dates, and live yes/no/pending response counts |
+| `permission_slip_form.html` | `templates/core/permission_slip_form.html` | Delivered — create/edit form, doubles as both |
+| `permission_slip_detail.html` | `templates/core/permission_slip_detail.html` | Delivered — the full per-student response roster: response, who answered, when, and their notes |
+| `guardian_permission_slips.html` | `templates/core/guardian_permission_slips.html` | Delivered — guardian view: one row per (slip, own child) pair, with an inline Yes/No + notes response form |
+| `my_child_detail.html` | `templates/core/my_child_detail.html` | Updated — added a Recent Permission Slips card; this also removed the last "coming soon" note from this page, since all four Communication sections are now real |
+| `wiki.html` | `templates/core/wiki.html` | Updated — new "Permission Slips" section, and "What a guardian sees" fully updated with no remaining placeholder caveats |
+| `tests.py` | `core/tests.py` | Updated — 17 new tests (`PermissionSlipCRUDTests`, `GuardianPermissionSlipResponseTests`), 121 total at this point |
+
+### 26.2 Design decisions worth knowing about
+
+- **School-wide or class-scoped, same audience pattern as Announcements/Fee Notices.** `PermissionSlipForm`'s `school_class` field is optional; left blank, the slip applies to every active student at the school.
+- **Response rows are generated automatically, not picked by the submitter.** `_sync_permission_slip_responses` runs after a slip is created or edited: for every active student in the slip's audience who has at least one linked guardian, it creates a `PermissionSlipResponse` row defaulting to pending — nothing to set up separately. It's idempotent (never touches a response that already exists), so re-running it after widening a slip's audience only adds rows for newly-eligible students; it never resets or removes an existing, possibly already-answered one.
+- **`PermissionSlipResponse.guardian` is a required field with no "nobody yet" null state**, which the auto-generation has to work around: a new row is seeded with the student's primary-contact guardian (or, failing that, whichever guardian was linked first) purely as a placeholder assignee. This does **not** restrict who can actually respond — `permission_slip_respond` re-verifies the requesting guardian's own `GuardianLink` to that student fresh, and overwrites `guardian` with whoever actually submits the response. The placeholder only affects who a "nobody's answered yet" view would name before anyone has.
+- **Self-healing sync on every read, not just on write.** `permission_slip_detail` and `_guardian_permission_slips` both re-run `_sync_permission_slip_responses` before rendering, so a student who gets a guardian linked *after* a slip was created still gets a response row the next time anyone views it — no need for an admin to re-save the slip.
+- **A guardian can change their answer at any time** by submitting the response form again; `permission_slip_respond` always overwrites the existing row rather than rejecting a second submission.
+- **No soft delete, same reasoning as Announcements/Homework/Fee Notices.** `PermissionSlip` has no `is_active` field; deleting one cascades to its `PermissionSlipResponse` rows, which is fine since a response for a slip that no longer exists has no reason to stick around.
+
+### 26.3 Validation performed
+
+17 new automated tests (121 total, all passing) split across `PermissionSlipCRUDTests` (admin/teacher side) and `GuardianPermissionSlipResponseTests` (guardian side): a class-scoped slip generates response rows only for active, guardian-linked students in that class; a school-wide slip covers every eligible class; a teacher can also create one; a guardian gets a 403; posting to another school's class is rejected; editing to widen the audience adds new response rows without touching an existing (already-answered) one; deleting a slip cascades its responses; the staff list shows correct live yes/no/pending counts; an admin at one school gets a 404 viewing another school's slip. On the guardian side: a guardian sees response rows only for their own linked children; responding yes/no records the response, the actual responder, notes, and a timestamp; a guardian can change their answer; a guardian gets a 404 attempting to respond for an unrelated child, even with a guessed id; an invalid response value is rejected without creating a row; a response row self-heals into existence the first time a guardian views the list after being linked to a student late; `my_child_detail` shows the right filtered set for that child.
+
+One test-writing note worth keeping in mind for future test authoring in this file: an early version of `test_invalid_response_value_rejected` used `assertRedirects`, which **follows the redirect by default** — the follow-up GET to the permission slips list triggered the self-heal sync described above and created a row, defeating the point of the test. Fixed by checking `response.status_code`/`response.url` directly instead of following the redirect.
+
+Also confirmed: `manage.py check` and `manage.py makemigrations --check --dry-run core` are both clean (no migration needed — both models already existed in `0001_initial`).
+
+---
+
+## 27. Set Up a School — Schools List — Delivered
+
+**The problem this fixes:** a superuser on the Set Up a School page (Section 15) had no way to see what schools already existed in the system before creating a new one — a real risk of an accidental near-duplicate tenant as the number of pilot schools grows.
+
+### 27.1 Files delivered
+
+| File | Location | Status |
+|---|---|---|
+| `views.py` | `core/views.py` | Updated — `school_setup` now also queries every `School`, annotated with active-only student and class counts, and passes it to the template |
+| `school_setup.html` | `templates/core/school_setup.html` | Updated — added a table below the create form: name, country, tier, active student/class counts, status, and created date |
+| `tests.py` | `core/tests.py` | Updated — 3 new tests (`SchoolSetupSchoolsListTests`), 124 total at this point |
+
+### 27.2 Design decisions worth knowing about
+
+- **Lists every school in the system, not just ones the requesting user belongs to** — a deliberate exception to the school-scoping rule that governs everywhere else in this app. This view is already restricted to superusers (`superuser_required`, Section 15), and seeing across every tenant is exactly the point of a platform-operator action like this one — it's not a scoping leak because nobody below superuser can reach this view at all.
+- **Counts are active-only**, matching what `students_list`/`classes_list` already treat as the "real" count by default (`is_active=True`), so the numbers shown here agree with what an admin at that school would see on their own People pages.
+
+### 27.3 Validation performed
+
+3 new automated tests (124 total, all passing): a superuser sees every school in the system with correctly annotated active-only student/class counts (confirmed against a school with both active and archived students/classes); a regular (non-superuser) admin still gets a 403; creating a school still works correctly alongside the new list.
+
+---
+
+## 28. Settings — Delivered
+
+**The problem this fixes:** Settings was the last sidebar section still routing to the generic placeholder page. A school's own profile (name, country, default language, timezone, academic year start month) could only be changed via `/admin/` — the same "not acceptable for day-to-day use" gap Section 15 closed for creating a school in the first place, just one level down: editing an *existing* school rather than creating a new one.
+
+### 28.1 Files delivered
+
+| File | Location | Status |
+|---|---|---|
+| `forms.py` | `core/forms.py` | Updated — added `SchoolSettingsForm` |
+| `views.py` | `core/views.py` | Updated — added `school_settings` |
+| `urls.py` | `core/urls.py` | Updated — the old `settings` placeholder route now points at `school_settings` |
+| `settings.html` | `templates/core/settings.html` | Delivered — edit form, plus the school's tier shown read-only |
+| `wiki.html` | `templates/core/wiki.html` | Updated — new "Settings" section |
+| `tests.py` | `core/tests.py` | Updated — 7 new tests (`SchoolSettingsTests`), 131 total at this point |
+
+### 28.2 Design decisions worth knowing about
+
+- **`SchoolSettingsForm` is a separate form from `SchoolForm`, not the same one reused.** It excludes `tier` entirely — Free vs Paid (Track 1 vs Track 2) is a licensing decision, not something a school should be able to flip on itself from a settings page; that stays a platform-operator action via `/admin/` for now. The tier is still shown on the Settings page, just read-only, with a note explaining why.
+- **No id anywhere in this view at all** — not in the URL, not in POST data. `school_settings` always operates on `request.school` (the requesting admin's currently *active* school, set by `ActiveSchoolMiddleware`), the same "never trust an id from outside the session" posture `switch_school` already uses, just with nothing left to even pass in. Confirmed by a dedicated test: an admin belonging to two schools, with school B active in their session, edits school B — school A is untouched.
+- **Admin-only, matching the Settings sidebar link's existing visibility.** The link was already gated to admins in `base.html` before this view existed (Section 22); `role_required(ADMIN)` on the view itself is what actually enforces that, not just the hidden link.
+
+### 28.3 Validation performed
+
+7 new automated tests (131 total, all passing): an admin can view and update their school's settings; the tier field is confirmed unchanged even if a tampered POST includes one; a teacher and a guardian both get a 403; an anonymous request redirects to login; an admin with active memberships at two schools has their edit correctly scoped to whichever school is active in their session, not the other one.
+
+Also confirmed: `manage.py check` and `manage.py makemigrations --check --dry-run core` are both clean — this section touches no model fields, only a form/view/template layer over the existing `School` model.
+
+---
+
+## 29. Immediate Next Steps
 
 1. **Apply the migration for real.** The `0001_initial` migration has been validated against disposable databases repeatedly but has not yet touched your actual dev SQLite file:
    ```
@@ -656,9 +780,10 @@ Fresh superuser with no school sees the empty state and the "Set Up a School" bu
    docker compose exec web python manage.py migrate
    docker compose exec web python manage.py createsuperuser
    ```
-   Then log in at `/accounts/login/`, use **Set Up a School** (Section 15) to create your first school, and confirm the dashboard, Classes (including the class detail view), Students (including the student detail view and guardian linking from both directions), Teachers, Guardians (including the guardian detail view), the guardian-facing dashboard/child view, Announcements (draft/publish/edit/delete, and the guardian read-tracking view), Homework (including uploading and downloading a real attachment), and the User Manual — all work end-to-end against your real database. Worth specifically testing as a guardian account, not just as an admin.
-2. **Build Fee Notices** (Section 9, item 6) — the next content section; the `FeeNotice` model already exists (Section 11.2), and Announcements/Homework have established the admin/teacher-write, guardian-read UI pattern (list + form + guardian-filtered view) every remaining section should follow.
+   Then log in at `/accounts/login/`, use **Set Up a School** (Section 15, now also listing every existing school — Section 27) to create your first school, and confirm the dashboard, Classes (including the class detail view), Students (including the student detail view and guardian linking from both directions), Teachers, Guardians (including the guardian detail view), the guardian-facing dashboard/child view, Announcements (draft/publish/edit/delete, and the guardian read-tracking view), Homework (including uploading and downloading a real attachment), Fee Notices (including marking paid/waived/unpaid), Permission Slips (including responding as a guardian and watching the response roster update), Settings, and the User Manual — all work end-to-end against your real database. Worth specifically testing as a guardian account, not just as an admin — this is the first point where every guardian-facing page in the MVP has real content behind it.
+2. **Build the PWA install + web push notification layer** (Section 9, item 8) — the last remaining item from the original Phase 1 build sequence, and now unblocked: every content section it would notify a guardian about (Announcements, Homework, Fee Notices, Permission Slips) is real. This is the next piece of work.
 3. **Decide on real SMS-based guardian invites** (Section 10) — the passwordless flow per proposal Section 4.2, replacing the username/password interim from Section 19.
 4. **Keep the User Manual (Section 21) current** as new sections get built — it'll go stale the same way this handover plan would if sections were added without updating it.
 5. **Sketch a backup plan** for the production Postgres volume before it holds real data (Section 8) — still open, still not urgent while everything is local dev.
-6. **Move media storage off local filesystem before real files at scale** (Section 10) — now that `Homework.attachment` is the first real `FileField` in production use, revisit the S3-compatible object storage swap flagged in the proposal (Section 5) sooner rather than later.
+6. **Move media storage off local filesystem before real files at scale** (Section 10) — `Homework.attachment` has been the first real `FileField` in production use since Section 24; revisit the S3-compatible object storage swap flagged in the proposal (Section 5) sooner rather than later.
+7. **A validation-environment note for whoever picks this up next:** Sections 25–28's automated-test validation ran in an isolated sandbox copy of the project under Django 5.2 / Python 3.10, not the pinned Django 6.0.7 / Python 3.14 stack (Section 7), because that sandbox didn't have Python 3.12+ available. Nothing in these sections uses version-specific Django features, but the full test suite (131 tests as of this revision) is worth one real run via `docker compose exec web python manage.py test core` against your actual pinned stack before treating any of it as fully proven — same as item 1 above, just from the automated-test side rather than the click-through side.

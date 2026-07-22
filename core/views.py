@@ -1,19 +1,22 @@
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
-from django.db.models import Q
-from django.http import HttpResponseRedirect
+from django.db.models import Count, Q
+from django.http import Http404, HttpResponseRedirect
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
 from .forms import (
     AnnouncementForm,
+    FeeNoticeForm,
     GuardianEditForm,
     GuardianForm,
     GuardianLinkForm,
     HomeworkForm,
+    PermissionSlipForm,
     SchoolClassForm,
     SchoolForm,
+    SchoolSettingsForm,
     StudentForm,
     StudentLinkForm,
     TeacherEditForm,
@@ -22,9 +25,12 @@ from .forms import (
 from .models import (
     Announcement,
     AnnouncementRead,
+    FeeNotice,
     GuardianLink,
     Homework,
+    PermissionSlip,
     PermissionSlipResponse,
+    School,
     SchoolClass,
     SchoolMembership,
     Student,
@@ -135,6 +141,12 @@ def my_child_detail(request, pk):
         if student.school_class
         else Homework.objects.none()
     )
+    fee_notices = FeeNotice.objects.filter(student=student).order_by("due_date")[:5]
+    permission_slip_responses = (
+        PermissionSlipResponse.objects.filter(student=student)
+        .select_related("permission_slip")
+        .order_by("permission_slip__response_deadline", "-permission_slip__created_at")[:5]
+    )
     return render(
         request,
         "core/my_child_detail.html",
@@ -143,17 +155,20 @@ def my_child_detail(request, pk):
             "student": student,
             "announcements": announcements,
             "homework_items": homework_items,
+            "fee_notices": fee_notices,
+            "permission_slip_responses": permission_slip_responses,
         },
     )
 
 
 @login_required
 def placeholder(request, title, message):
-    """Generic stand-in page for sidebar sections that don't have real
-    views yet (Fee Notices, Permission Slips, Settings) — keeps the
-    navigation shell fully clickable while those are built out one at
-    a time. Announcements and Homework (Phase 1 build sequence items 4
-    and 5) are no longer among them — see their own sections below."""
+    """Generic stand-in page for sidebar sections that don't have a real
+    view yet. Nothing currently routes here — Announcements, Homework,
+    Fee Notices, Permission Slips, and Settings have all since been
+    replaced with real views (see their own sections) — but the helper
+    is kept as ready-made scaffolding for the next section that starts
+    out as a placeholder (e.g. whatever PWA/push settings need)."""
     return render(request, "core/placeholder.html", {"title": title, "message": message})
 
 
@@ -461,6 +476,421 @@ def homework_delete(request, pk):
     return redirect("core:homework")
 
 
+# ---------------------------------------------------------------------
+# Fee Notices — Phase 1 build sequence item 6, following the same
+# admin/teacher-write, guardian-read shape Announcements (Section 23)
+# and Homework (Section 24) established. Track 2 / private-school only
+# (proposal Section 4.3) — informational only, no payment processing.
+# Unlike Homework, a fee notice is always per-student (not per-class),
+# since tuition/fees are owed by a specific family, not assigned to a
+# whole class. Unlike Announcements, there's no draft/publish split —
+# a fee notice is visible to that student's guardians as soon as it's
+# saved — but it does have a status (unpaid/paid/waived, already on the
+# model) that's changed via separate, explicit actions rather than a
+# field on the edit form, the same reasoning Announcements' publish/
+# unpublish split has: editing the amount and marking it paid are
+# different enough actions that conflating them risks an accidental
+# status change while fixing a typo.
+# ---------------------------------------------------------------------
+
+@login_required
+def fee_notices_list(request):
+    """Dispatches by role, same pattern as announcements_list/homework_list."""
+    if request.school is None:
+        messages.error(request, "You need to be linked to a school to see fee notices.")
+        return redirect("core:dashboard")
+
+    if request.membership.role == SchoolMembership.Role.GUARDIAN:
+        return _guardian_fee_notices(request)
+
+    fee_notices = scope_to_school(
+        FeeNotice.objects.select_related("student", "created_by"), request
+    ).order_by("due_date")
+    return render(request, "core/fee_notices_list.html", {"fee_notices": fee_notices})
+
+
+def _guardian_fee_notices(request):
+    fee_notices = (
+        FeeNotice.objects.filter(
+            school=request.school, student__guardian_links__guardian=request.user
+        )
+        .select_related("student")
+        .distinct()
+        .order_by("due_date")
+    )
+    return render(
+        request, "core/guardian_fee_notices.html", {"fee_notices": fee_notices}
+    )
+
+
+@login_required
+@role_required(SchoolMembership.Role.ADMIN, SchoolMembership.Role.TEACHER)
+def fee_notice_new(request):
+    if request.school is None:
+        messages.error(
+            request, "You need to be linked to a school before you can add a fee notice."
+        )
+        return redirect("core:dashboard")
+
+    if request.method == "POST":
+        form = FeeNoticeForm(request.POST, school=request.school)
+        if form.is_valid():
+            fee_notice = form.save(commit=False)
+            fee_notice.created_by = request.user
+            fee_notice.save()
+            messages.success(
+                request,
+                f"“{fee_notice.title}” posted for {fee_notice.student.first_name} "
+                f"{fee_notice.student.last_name} — visible to their guardians now.",
+            )
+            return redirect("core:fees")
+    else:
+        form = FeeNoticeForm(school=request.school)
+
+    return render(request, "core/fee_notice_form.html", {"form": form})
+
+
+def _get_fee_notice_or_404(request, pk):
+    return get_object_or_404(scope_to_school(FeeNotice.objects.all(), request), pk=pk)
+
+
+@login_required
+@role_required(SchoolMembership.Role.ADMIN, SchoolMembership.Role.TEACHER)
+def fee_notice_edit(request, pk):
+    fee_notice = _get_fee_notice_or_404(request, pk)
+
+    if request.method == "POST":
+        form = FeeNoticeForm(request.POST, instance=fee_notice, school=request.school)
+        if form.is_valid():
+            form.save()
+            messages.success(request, f"“{fee_notice.title}” updated.")
+            return redirect("core:fees")
+    else:
+        form = FeeNoticeForm(instance=fee_notice, school=request.school)
+
+    return render(
+        request, "core/fee_notice_form.html", {"form": form, "fee_notice": fee_notice}
+    )
+
+
+@login_required
+@role_required(SchoolMembership.Role.ADMIN, SchoolMembership.Role.TEACHER)
+@require_POST
+def fee_notice_delete(request, pk):
+    """
+    A real delete, same reasoning as announcement_delete/homework_delete:
+    FeeNotice has no is_active field and nothing else references it, so
+    there's no history a soft delete would be protecting.
+    """
+    fee_notice = _get_fee_notice_or_404(request, pk)
+    title = fee_notice.title
+    fee_notice.delete()
+    messages.success(request, f"“{title}” deleted.")
+    return redirect("core:fees")
+
+
+def _set_fee_notice_status(request, pk, status, verb):
+    fee_notice = _get_fee_notice_or_404(request, pk)
+    fee_notice.status = status
+    fee_notice.save(update_fields=["status"])
+    messages.success(request, f"“{fee_notice.title}” marked {verb}.")
+    return redirect("core:fees")
+
+
+@login_required
+@role_required(SchoolMembership.Role.ADMIN, SchoolMembership.Role.TEACHER)
+@require_POST
+def fee_notice_mark_paid(request, pk):
+    return _set_fee_notice_status(request, pk, FeeNotice.Status.PAID, "paid")
+
+
+@login_required
+@role_required(SchoolMembership.Role.ADMIN, SchoolMembership.Role.TEACHER)
+@require_POST
+def fee_notice_mark_waived(request, pk):
+    return _set_fee_notice_status(request, pk, FeeNotice.Status.WAIVED, "waived")
+
+
+@login_required
+@role_required(SchoolMembership.Role.ADMIN, SchoolMembership.Role.TEACHER)
+@require_POST
+def fee_notice_mark_unpaid(request, pk):
+    return _set_fee_notice_status(request, pk, FeeNotice.Status.UNPAID, "unpaid")
+
+
+# ---------------------------------------------------------------------
+# Permission Slips — Phase 1 build sequence item 7, the last of the
+# four Communication sections. School-wide (school_class is null) or
+# class-scoped, same audience pattern as Announcements/Fee Notices, but
+# with real response tracking: creating or editing a slip generates one
+# PermissionSlipResponse row per eligible student (active, with at
+# least one linked guardian) via _sync_permission_slip_responses,
+# defaulting to pending. A guardian responds Yes/No (with optional
+# notes) for each of their own linked children — any guardian linked to
+# that student can respond, not just whichever one the row happened to
+# be pre-assigned to, since PermissionSlipResponse.guardian is a
+# required field and something has to be there before anyone has
+# actually responded (see the helper's docstring for the full
+# reasoning).
+# ---------------------------------------------------------------------
+
+def _sync_permission_slip_responses(permission_slip):
+    """
+    Ensures a PermissionSlipResponse row exists for every student
+    currently eligible for the given slip — active, in the slip's
+    school, and (if the slip is class-scoped) in that class — and who
+    has at least one linked guardian (no point tracking a response
+    nobody can give). Idempotent: never touches a response that already
+    exists, so re-running this after editing a slip only adds rows for
+    newly-eligible students, it never resets or removes an existing
+    (possibly already-answered) one.
+
+    PermissionSlipResponse.guardian is a required foreign key — there's
+    no "nobody has responded yet" null state on the model — so a new
+    row is seeded with the student's primary-contact guardian (or, if
+    none is marked primary, whichever guardian was linked first) purely
+    as a placeholder assignee. Any guardian actually linked to that
+    student can still respond (core.views.permission_slip_respond
+    re-checks the GuardianLink fresh and overwrites `guardian` with
+    whoever actually submitted the response), so this placeholder only
+    affects who a "who hasn't responded yet" view would name before
+    anyone has answered — it never restricts who's allowed to answer.
+    """
+    students = Student.objects.filter(school=permission_slip.school, is_active=True)
+    if permission_slip.school_class_id:
+        students = students.filter(school_class_id=permission_slip.school_class_id)
+    students = students.filter(guardian_links__isnull=False).distinct()
+
+    existing_student_ids = set(
+        PermissionSlipResponse.objects.filter(
+            permission_slip=permission_slip, student__in=students
+        ).values_list("student_id", flat=True)
+    )
+    for student in students:
+        if student.id in existing_student_ids:
+            continue
+        placeholder_link = (
+            student.guardian_links.filter(is_primary_contact=True).first()
+            or student.guardian_links.order_by("created_at").first()
+        )
+        PermissionSlipResponse.objects.create(
+            permission_slip=permission_slip,
+            student=student,
+            guardian=placeholder_link.guardian,
+            response=PermissionSlipResponse.Response.PENDING,
+        )
+
+
+@login_required
+def permission_slips_list(request):
+    """Dispatches by role, same pattern as announcements_list/homework_list/
+    fee_notices_list."""
+    if request.school is None:
+        messages.error(request, "You need to be linked to a school to see permission slips.")
+        return redirect("core:dashboard")
+
+    if request.membership.role == SchoolMembership.Role.GUARDIAN:
+        return _guardian_permission_slips(request)
+
+    slips = list(
+        scope_to_school(
+            PermissionSlip.objects.select_related("school_class", "created_by"), request
+        )
+        .prefetch_related("responses")
+        .order_by("-created_at")
+    )
+    for slip in slips:
+        responses = list(slip.responses.all())
+        slip.response_total = len(responses)
+        slip.response_yes = sum(
+            1 for r in responses if r.response == PermissionSlipResponse.Response.YES
+        )
+        slip.response_no = sum(
+            1 for r in responses if r.response == PermissionSlipResponse.Response.NO
+        )
+        slip.response_pending = sum(
+            1 for r in responses if r.response == PermissionSlipResponse.Response.PENDING
+        )
+    return render(request, "core/permission_slips_list.html", {"permission_slips": slips})
+
+
+def _guardian_permission_slips(request):
+    """
+    Builds one row per (permission slip, own child) pair the requesting
+    guardian is entitled to respond to — flattened in the view rather
+    than nested in the template, so a guardian isn't shown a school-wide
+    slip with nothing under it just because they have no children
+    linked yet (a real, if unusual, state — an orphaned guardian
+    account, or one added before any GuardianLink existed).
+    """
+    class_ids = _relevant_class_ids_for_guardian(request)
+    slips = list(
+        PermissionSlip.objects.filter(school=request.school)
+        .filter(Q(school_class__isnull=True) | Q(school_class_id__in=class_ids))
+        .select_related("school_class")
+        .order_by("response_deadline", "-created_at")
+    )
+    # Self-heal: a guardian linked to a student *after* a slip was
+    # created wouldn't have a response row from the original sync — running
+    # it again here (idempotent, see the helper's docstring) catches that
+    # without requiring an admin to re-save the slip.
+    for slip in slips:
+        _sync_permission_slip_responses(slip)
+
+    my_responses = (
+        PermissionSlipResponse.objects.filter(
+            permission_slip__in=slips, student__guardian_links__guardian=request.user
+        )
+        .select_related("student", "permission_slip__school_class")
+        .order_by(
+            "permission_slip__response_deadline",
+            "student__last_name",
+            "student__first_name",
+        )
+    )
+    response_items = [
+        {"permission_slip": response.permission_slip, "response": response}
+        for response in my_responses
+    ]
+
+    return render(
+        request, "core/guardian_permission_slips.html", {"response_items": response_items}
+    )
+
+
+@login_required
+@role_required(SchoolMembership.Role.ADMIN, SchoolMembership.Role.TEACHER)
+def permission_slip_new(request):
+    if request.school is None:
+        messages.error(
+            request, "You need to be linked to a school before you can add a permission slip."
+        )
+        return redirect("core:dashboard")
+
+    if request.method == "POST":
+        form = PermissionSlipForm(request.POST, school=request.school)
+        if form.is_valid():
+            slip = form.save(commit=False)
+            slip.created_by = request.user
+            slip.save()
+            _sync_permission_slip_responses(slip)
+            messages.success(
+                request,
+                f"“{slip.title}” posted — visible to "
+                f"{'that class' if slip.school_class else 'every'} student's guardians now.",
+            )
+            return redirect("core:permission_slips")
+    else:
+        form = PermissionSlipForm(school=request.school)
+
+    return render(request, "core/permission_slip_form.html", {"form": form})
+
+
+def _get_permission_slip_or_404(request, pk):
+    return get_object_or_404(scope_to_school(PermissionSlip.objects.all(), request), pk=pk)
+
+
+@login_required
+@role_required(SchoolMembership.Role.ADMIN, SchoolMembership.Role.TEACHER)
+def permission_slip_detail(request, pk):
+    """
+    Single-slip view: every student's response, who (if anyone) has
+    responded, and when — the "trackable guardian responses" the
+    placeholder page promised. Re-runs _sync_permission_slip_responses
+    first so a student added to the class (or newly given a guardian)
+    since the slip was created shows up here too.
+    """
+    slip = _get_permission_slip_or_404(request, pk)
+    _sync_permission_slip_responses(slip)
+    responses = slip.responses.select_related("student", "guardian").order_by(
+        "student__last_name", "student__first_name"
+    )
+    return render(
+        request,
+        "core/permission_slip_detail.html",
+        {"permission_slip": slip, "responses": responses},
+    )
+
+
+@login_required
+@role_required(SchoolMembership.Role.ADMIN, SchoolMembership.Role.TEACHER)
+def permission_slip_edit(request, pk):
+    slip = _get_permission_slip_or_404(request, pk)
+
+    if request.method == "POST":
+        form = PermissionSlipForm(request.POST, instance=slip, school=request.school)
+        if form.is_valid():
+            form.save()
+            _sync_permission_slip_responses(slip)
+            messages.success(request, f"“{slip.title}” updated.")
+            return redirect("core:permission_slips")
+    else:
+        form = PermissionSlipForm(instance=slip, school=request.school)
+
+    return render(
+        request, "core/permission_slip_form.html", {"form": form, "permission_slip": slip}
+    )
+
+
+@login_required
+@role_required(SchoolMembership.Role.ADMIN, SchoolMembership.Role.TEACHER)
+@require_POST
+def permission_slip_delete(request, pk):
+    """
+    A real delete, same reasoning as announcement_delete/homework_delete/
+    fee_notice_delete: PermissionSlip has no is_active field, and
+    deleting one cascades to its PermissionSlipResponse rows — response
+    records for a slip that no longer exists have no reason to stick
+    around.
+    """
+    slip = _get_permission_slip_or_404(request, pk)
+    title = slip.title
+    slip.delete()
+    messages.success(request, f"“{title}” deleted.")
+    return redirect("core:permission_slips")
+
+
+@login_required
+@role_required(SchoolMembership.Role.GUARDIAN)
+@require_POST
+def permission_slip_respond(request, pk, student_pk):
+    """
+    Records a guardian's Yes/No response (with optional notes) for one
+    of their own linked children. Re-verifies the guardian-student link
+    fresh via GuardianLink — not just that a PermissionSlipResponse row
+    with this student_pk exists — same reasoning as
+    announcement_mark_read: a guardian shouldn't be able to respond on
+    behalf of an unrelated student by guessing ids in a POST, even
+    though the row's pre-seeded `guardian` field might name someone
+    else entirely (see _sync_permission_slip_responses's docstring).
+    """
+    slip = get_object_or_404(PermissionSlip.objects.filter(school=request.school), pk=pk)
+    if not GuardianLink.objects.filter(guardian=request.user, student_id=student_pk).exists():
+        raise Http404
+
+    response_value = request.POST.get("response")
+    valid_responses = {
+        PermissionSlipResponse.Response.YES,
+        PermissionSlipResponse.Response.NO,
+    }
+    if response_value not in valid_responses:
+        messages.error(request, "Choose Yes or No to respond.")
+        return redirect("core:permission_slips")
+
+    response, _created = PermissionSlipResponse.objects.get_or_create(
+        permission_slip=slip,
+        student_id=student_pk,
+        defaults={"guardian": request.user, "response": PermissionSlipResponse.Response.PENDING},
+    )
+    response.response = response_value
+    response.guardian = request.user
+    response.notes = request.POST.get("notes", "")
+    response.responded_at = timezone.now()
+    response.save(update_fields=["response", "guardian", "notes", "responded_at"])
+    messages.success(request, "Your response has been recorded.")
+    return redirect("core:permission_slips")
+
+
 @login_required
 def wiki(request):
     """
@@ -526,7 +956,56 @@ def school_setup(request):
     else:
         form = SchoolForm()
 
-    return render(request, "core/school_setup.html", {"form": form})
+    # Only a superuser ever reaches this view (superuser_required, above),
+    # so listing every school in the system here — not just ones the
+    # current user belongs to — isn't a school-scoping leak: this is
+    # exactly the platform-operator context (creating a new tenant) where
+    # seeing the full tenant list is the point, e.g. to confirm a school
+    # doesn't already exist before adding a near-duplicate. Annotated
+    # counts use active-only students/classes to match what the rest of
+    # the app treats as the "real" count (students_list/classes_list both
+    # default to is_active=True).
+    schools = School.objects.annotate(
+        active_student_count=Count(
+            "students", filter=Q(students__is_active=True), distinct=True
+        ),
+        active_class_count=Count(
+            "classes", filter=Q(classes__is_active=True), distinct=True
+        ),
+    ).order_by("name")
+
+    return render(request, "core/school_setup.html", {"form": form, "schools": schools})
+
+
+# ---------------------------------------------------------------------
+# Settings — the last of the placeholder sidebar sections. Unlike
+# school_setup (superuser-only, creates a *new* tenant), this edits the
+# *currently active* school's own profile, and is reachable by a
+# regular school admin — matching the Settings sidebar link's existing
+# admin-only visibility (templates/base.html). There's no id in the
+# URL at all: the view always operates on request.school, the same
+# "never trust an id from outside the session/middleware" posture
+# switch_school already uses, just taken one step further since there's
+# nothing here to even pass in.
+# ---------------------------------------------------------------------
+
+@login_required
+@role_required(SchoolMembership.Role.ADMIN)
+def school_settings(request):
+    if request.school is None:
+        messages.error(request, "You need to be linked to a school to view settings.")
+        return redirect("core:dashboard")
+
+    if request.method == "POST":
+        form = SchoolSettingsForm(request.POST, instance=request.school)
+        if form.is_valid():
+            form.save()
+            messages.success(request, f"“{request.school.name}” settings updated.")
+            return redirect("core:settings")
+    else:
+        form = SchoolSettingsForm(instance=request.school)
+
+    return render(request, "core/settings.html", {"form": form, "school": request.school})
 
 
 # ---------------------------------------------------------------------

@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+
+{% block title %}Permission Slips — Notipa{% endblock %}
+
+{% block breadcrumb %}
+  <span class="topbar__breadcrumb-current">Permission Slips</span>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <span class="page-header__eyebrow">Communication</span>
+    <h1>Permission Slips</h1>
+    <p class="page-header__sub">School-wide permission slips and ones for your children's classes at {{ request.school.name }}.</p>
+  </div>
+</div>
+
+<div class="card">
+  <div class="list-group">
+    {% for item in response_items %}
+    {% with s=item.permission_slip r=item.response %}
+    <div class="list-row">
+      <div class="list-row__icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+      </div>
+      <div class="list-row__body">
+        <div class="list-row__title">{{ s.title }} — {{ r.student.first_name }} {{ r.student.last_name }}</div>
+        <div class="list-row__meta">
+          {% if s.school_class %}{{ s.school_class.name }}{% else %}School-wide{% endif %}
+          {% if s.event_date %} · Event {{ s.event_date|date:"M j, Y" }}{% endif %}
+          {% if s.response_deadline %} · Respond by {{ s.response_deadline|date:"M j, Y" }}{% endif %}
+          ·
+          {% if r.response == "yes" %}
+            <span class="tag tag--active"><span class="tag__eyelet"></span>You said yes</span>
+          {% elif r.response == "no" %}
+            <span class="tag tag--critical"><span class="tag__eyelet"></span>You said no</span>
+          {% else %}
+            <span class="tag tag--neutral"><span class="tag__eyelet"></span>Awaiting your response</span>
+          {% endif %}
+        </div>
+        {% if s.description %}<p style="margin: 8px 0 0;">{{ s.description|linebreaksbr }}</p>{% endif %}
+        <form method="post" action="{% url 'core:permission_slip_respond' s.pk r.student.pk %}" style="margin-top: 10px;">
+          {% csrf_token %}
+          <div class="field">
+            <label class="field__label" for="notes-{{ s.pk }}-{{ r.student.pk }}">Notes (optional)</label>
+            <textarea class="input" name="notes" id="notes-{{ s.pk }}-{{ r.student.pk }}" rows="2">{{ r.notes }}</textarea>
+          </div>
+          <div style="display:flex; gap:10px; margin-top: 8px;">
+            <button type="submit" name="response" value="yes" class="btn btn--primary btn--sm">Yes</button>
+            <button type="submit" name="response" value="no" class="btn btn--danger btn--sm">No</button>
+          </div>
+        </form>
+      </div>
+    </div>
+    {% endwith %}
+    {% empty %}
+    <div class="empty-list">No permission slips yet.</div>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}

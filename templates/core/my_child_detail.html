@@ -85,8 +85,59 @@
   </div>
 </div>
 
+<div class="card card--pad-lg" style="max-width: 480px; margin-bottom: 20px;">
+  <div class="card__header">
+    <h2 class="card__title" style="margin:0;">Fee Notices</h2>
+    <a href="{% url 'core:fees' %}" class="card__link">View all</a>
+  </div>
+  <div class="list-group">
+    {% for f in fee_notices %}
+    <div class="list-row">
+      <div class="list-row__icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg>
+      </div>
+      <div class="list-row__body">
+        <div class="list-row__title">{{ f.title }}</div>
+        <div class="list-row__meta">
+          {{ f.currency }} {{ f.amount }} · Due {{ f.due_date|date:"M j, Y" }} ·
+          <span class="tag {% if f.status == 'paid' %}tag--active{% elif f.status == 'waived' %}tag--neutral{% else %}tag--warning{% endif %}"><span class="tag__eyelet"></span>{{ f.get_status_display }}</span>
+        </div>
+      </div>
+    </div>
+    {% empty %}
+    <div class="empty-list">No fee notices yet.</div>
+    {% endfor %}
+  </div>
+</div>
+
 <div class="card card--pad-lg" style="max-width: 480px;">
-  <h2 style="margin-top:0;">Coming soon</h2>
-  <p class="text-dim">Fee notices and permission slips for {{ student.first_name }} will appear here once those features are built.</p>
+  <div class="card__header">
+    <h2 class="card__title" style="margin:0;">Permission Slips</h2>
+    <a href="{% url 'core:permission_slips' %}" class="card__link">View all</a>
+  </div>
+  <div class="list-group">
+    {% for r in permission_slip_responses %}
+    <div class="list-row">
+      <div class="list-row__icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+      </div>
+      <div class="list-row__body">
+        <div class="list-row__title">{{ r.permission_slip.title }}</div>
+        <div class="list-row__meta">
+          {% if r.permission_slip.response_deadline %}Respond by {{ r.permission_slip.response_deadline|date:"M j, Y" }} ·{% endif %}
+          {% if r.response == "yes" %}
+            <span class="tag tag--active"><span class="tag__eyelet"></span>You said yes</span>
+          {% elif r.response == "no" %}
+            <span class="tag tag--critical"><span class="tag__eyelet"></span>You said no</span>
+          {% else %}
+            <span class="tag tag--neutral"><span class="tag__eyelet"></span>Awaiting your response</span>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+    {% empty %}
+    <div class="empty-list">No permission slips yet.</div>
+    {% endfor %}
+  </div>
 </div>
 {% endblock %}

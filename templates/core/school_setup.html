@@ -56,4 +56,54 @@
     </div>
   </form>
 </div>
+
+<div class="page-header" style="margin-top: 32px;">
+  <div>
+    <h2 style="margin:0;">Schools in the system</h2>
+    <p class="page-header__sub">{{ schools|length }} school{{ schools|length|pluralize }} total — worth a check before creating a near-duplicate.</p>
+  </div>
+</div>
+
+<div class="table-wrap">
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>Name</th>
+        <th>Country</th>
+        <th>Tier</th>
+        <th class="cell--num">Students</th>
+        <th class="cell--num">Classes</th>
+        <th>Status</th>
+        <th>Created</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for school in schools %}
+      <tr>
+        <td class="cell--title">{{ school.name }}</td>
+        <td>{{ school.country }}</td>
+        <td>
+          {% if school.tier == "paid" %}
+            <span class="tag tag--active"><span class="tag__eyelet"></span>Paid</span>
+          {% else %}
+            <span class="tag tag--neutral"><span class="tag__eyelet"></span>Free</span>
+          {% endif %}
+        </td>
+        <td class="cell--num">{{ school.active_student_count }}</td>
+        <td class="cell--num">{{ school.active_class_count }}</td>
+        <td>
+          {% if school.is_active %}
+            Active
+          {% else %}
+            <span class="text-dim">Inactive</span>
+          {% endif %}
+        </td>
+        <td>{{ school.created_at|date:"M j, Y" }}</td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="7"><div class="empty-list">No schools yet — you'll be the first.</div></td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
 {% endblock %}

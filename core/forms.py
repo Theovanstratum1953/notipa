@@ -4,8 +4,10 @@ from django.contrib.auth import password_validation
 
 from .models import (
     Announcement,
+    FeeNotice,
     GuardianLink,
     Homework,
+    PermissionSlip,
     School,
     SchoolClass,
     SchoolMembership,
@@ -55,6 +57,51 @@ class SchoolForm(forms.ModelForm):
         }
         help_texts = {
             "tier": "Free (Track 1, public school) or Paid (Track 2, private-school licence).",
+            "academic_year_start_month": "Month the academic year starts, 1–12 (e.g. 6 for June).",
+        }
+
+
+class SchoolSettingsForm(forms.ModelForm):
+    """
+    Edits an existing School's own profile — the Admin > Settings page
+    (core.views.school_settings), scoped to request.school and reachable
+    by a regular school admin, not just a superuser. Deliberately a
+    separate form from SchoolForm rather than the same one reused:
+
+    - No `tier` field. Free vs Paid (Track 1 vs Track 2) is a licensing
+      decision, not something a school should be able to flip on
+      themselves from a settings page — that stays a platform-operator
+      action via /admin/ for now, the same "not exposed in-app yet"
+      category as a few other edge cases already called out elsewhere
+      in this app (e.g. changing a teacher's username).
+    - No way to change which School this is. The view always passes
+      `instance=request.school` — there's no id field on this form at
+      all, so there's nothing to tamper with in POST data the way
+      SchoolClassForm/StudentForm guard against picking a different
+      school's id.
+    """
+
+    class Meta:
+        model = School
+        fields = ["name", "country", "default_language", "timezone", "academic_year_start_month"]
+        widgets = {
+            "name": forms.TextInput(
+                attrs={"class": "input", "placeholder": "e.g. Sampaguita Elementary School"}
+            ),
+            "country": forms.TextInput(
+                attrs={"class": "input", "placeholder": "ISO code, e.g. PH", "maxlength": 2}
+            ),
+            "default_language": forms.TextInput(
+                attrs={"class": "input", "placeholder": "e.g. en"}
+            ),
+            "timezone": forms.TextInput(
+                attrs={"class": "input", "placeholder": "e.g. Asia/Manila"}
+            ),
+            "academic_year_start_month": forms.NumberInput(
+                attrs={"class": "input", "min": 1, "max": 12}
+            ),
+        }
+        help_texts = {
             "academic_year_start_month": "Month the academic year starts, 1–12 (e.g. 6 for June).",
         }
 
@@ -692,3 +739,102 @@ class HomeworkForm(forms.ModelForm):
         self.fields["description"].required = False
         self.fields["due_date"].required = False
         self.fields["attachment"].required = False
+
+
+class FeeNoticeForm(forms.ModelForm):
+    """
+    Creates or edits a FeeNotice — an informational fee due-date notice,
+    Track 2 / private-school only (proposal Section 4.3), always
+    per-student rather than per-class or school-wide, since a fee
+    (tuition, a specific charge) is something a family owes for their
+    own child, not a message a whole class needs to see.
+
+    `school` is passed in explicitly by the view (never taken from POST
+    data — see core.views.fee_notice_new/fee_notice_edit), same pattern
+    as every other school-scoped form here, and is used both to set the
+    instance's own `school` field and to restrict the `student`
+    dropdown to that school's active students — an archived student
+    almost certainly shouldn't be getting a new fee notice.
+
+    Deliberately doesn't include `status` as a form field. Like
+    Announcement's `published_at`, changing a fee notice's status
+    (unpaid → paid/waived, or back) is a separate, explicit action
+    (core.views.fee_notice_mark_paid/mark_waived/mark_unpaid) rather than
+    a field on this form — editing the amount/due date and changing
+    whether it's been paid are different enough actions that conflating
+    them into one form risks an accidental status change while fixing a
+    typo in the description.
+    """
+
+    class Meta:
+        model = FeeNotice
+        fields = ["student", "title", "description", "amount", "currency", "due_date"]
+        widgets = {
+            "student": forms.Select(attrs={"class": "select"}),
+            "title": forms.TextInput(
+                attrs={"class": "input", "placeholder": "e.g. Term 2 tuition"}
+            ),
+            "description": forms.Textarea(attrs={"class": "input", "rows": 4}),
+            "amount": forms.NumberInput(attrs={"class": "input", "step": "0.01", "min": 0}),
+            "currency": forms.TextInput(
+                attrs={"class": "input", "placeholder": "e.g. PHP", "maxlength": 3}
+            ),
+            "due_date": forms.DateInput(attrs={"class": "input", "type": "date"}),
+        }
+
+    def __init__(self, *args, school=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.instance.school = school
+        self.fields["student"].queryset = Student.objects.filter(
+            school=school, is_active=True
+        ).order_by("last_name", "first_name")
+        self.fields["student"].label_from_instance = (
+            lambda s: f"{s.first_name} {s.last_name}"
+        )
+        self.fields["description"].required = False
+
+
+class PermissionSlipForm(forms.ModelForm):
+    """
+    Creates or edits a PermissionSlip — an event requiring guardian
+    acknowledgement, tracked per student via PermissionSlipResponse.
+    School-wide (school_class is null) or class-scoped, same audience
+    pattern as AnnouncementForm: `school_class` is optional and, left
+    blank, applies to every active student at the school.
+
+    `school` is passed in explicitly by the view (never taken from POST
+    data — see core.views.permission_slip_new/permission_slip_edit),
+    same pattern as every other school-scoped form here.
+
+    Deliberately doesn't expose PermissionSlipResponse rows here — those
+    are generated separately (core.views._sync_permission_slip_responses)
+    once the slip itself is saved, since the response rows depend on
+    which students are actually eligible (active, with at least one
+    linked guardian) rather than being something this form's submitter
+    picks directly.
+    """
+
+    class Meta:
+        model = PermissionSlip
+        fields = ["title", "description", "school_class", "event_date", "response_deadline"]
+        widgets = {
+            "title": forms.TextInput(
+                attrs={"class": "input", "placeholder": "e.g. Museum field trip"}
+            ),
+            "description": forms.Textarea(attrs={"class": "input", "rows": 5}),
+            "school_class": forms.Select(attrs={"class": "select"}),
+            "event_date": forms.DateInput(attrs={"class": "input", "type": "date"}),
+            "response_deadline": forms.DateInput(attrs={"class": "input", "type": "date"}),
+        }
+
+    def __init__(self, *args, school=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.instance.school = school
+        self.fields["school_class"].queryset = SchoolClass.objects.filter(
+            school=school, is_active=True
+        )
+        self.fields["school_class"].required = False
+        self.fields["school_class"].empty_label = "School-wide (all students)"
+        self.fields["description"].required = False
+        self.fields["event_date"].required = False
+        self.fields["response_deadline"].required = False

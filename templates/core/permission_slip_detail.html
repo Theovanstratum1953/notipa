@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+
+{% block title %}{{ permission_slip.title }} — Notipa{% endblock %}
+
+{% block breadcrumb %}
+  <a href="{% url 'core:permission_slips' %}">Permission Slips</a><span class="topbar__breadcrumb-sep">/</span><span class="topbar__breadcrumb-current">{{ permission_slip.title }}</span>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <span class="page-header__eyebrow">Communication</span>
+    <h1>{{ permission_slip.title }}</h1>
+    <p class="page-header__sub">
+      {% if permission_slip.school_class %}{{ permission_slip.school_class.name }}{% else %}School-wide{% endif %}
+      {% if permission_slip.event_date %} · Event {{ permission_slip.event_date|date:"M j, Y" }}{% endif %}
+      {% if permission_slip.response_deadline %} · Responses due {{ permission_slip.response_deadline|date:"M j, Y" }}{% endif %}
+    </p>
+  </div>
+  <a href="{% url 'core:permission_slip_edit' permission_slip.pk %}" class="btn btn--secondary">
+    Edit
+  </a>
+</div>
+
+{% if permission_slip.description %}
+<div class="card card--pad-lg" style="max-width: 640px; margin-bottom: 20px;">
+  <p style="margin:0;">{{ permission_slip.description|linebreaksbr }}</p>
+</div>
+{% endif %}
+
+<div class="table-wrap">
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>Student</th>
+        <th>Response</th>
+        <th>Responded By</th>
+        <th>Responded</th>
+        <th>Notes</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in responses %}
+      <tr>
+        <td class="cell--title"><a href="{% url 'core:student_detail' r.student.pk %}">{{ r.student.first_name }} {{ r.student.last_name }}</a></td>
+        <td>
+          {% if r.response == "yes" %}
+            <span class="tag tag--active"><span class="tag__eyelet"></span>Yes</span>
+          {% elif r.response == "no" %}
+            <span class="tag tag--critical"><span class="tag__eyelet"></span>No</span>
+          {% else %}
+            <span class="tag tag--neutral"><span class="tag__eyelet"></span>Pending</span>
+          {% endif %}
+        </td>
+        <td>
+          {% if r.responded_at %}
+            {{ r.guardian.get_full_name|default:r.guardian.username }}
+          {% else %}
+            <span class="text-dim">—</span>
+          {% endif %}
+        </td>
+        <td>
+          {% if r.responded_at %}{{ r.responded_at|date:"M j, Y, g:i a" }}{% else %}<span class="text-dim">—</span>{% endif %}
+        </td>
+        <td>{{ r.notes|default:"—" }}</td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="5"><div class="empty-list">No eligible students yet — none have both an active enrollment and a linked guardian.</div></td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

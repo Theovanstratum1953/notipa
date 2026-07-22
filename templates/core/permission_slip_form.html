@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+
+{% block title %}{% if permission_slip %}Edit Permission Slip{% else %}New Permission Slip{% endif %} — Notipa{% endblock %}
+
+{% block breadcrumb %}
+  <a href="{% url 'core:permission_slips' %}">Permission Slips</a><span class="topbar__breadcrumb-sep">/</span><span class="topbar__breadcrumb-current">{% if permission_slip %}Edit{% else %}New{% endif %}</span>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <span class="page-header__eyebrow">Communication</span>
+    <h1>{% if permission_slip %}Edit Permission Slip{% else %}New Permission Slip{% endif %}</h1>
+    <p class="page-header__sub">
+      {% if permission_slip %}
+        Editing never removes an existing response — saving just makes sure every currently eligible student has a row to respond to.
+      {% else %}
+        A response row is created for every active student in the audience who has at least one linked guardian, ready for them to respond.
+      {% endif %}
+    </p>
+  </div>
+</div>
+
+<div class="card card--pad-lg" style="max-width: 560px;">
+  <form method="post">
+    {% csrf_token %}
+    <div class="field">
+      <label class="field__label" for="{{ form.title.id_for_label }}">Title</label>
+      {{ form.title }}
+      {% if form.title.errors %}<div class="field__hint text-brick">{{ form.title.errors|striptags }}</div>{% endif %}
+    </div>
+    <div class="field">
+      <label class="field__label" for="{{ form.description.id_for_label }}">Description</label>
+      {{ form.description }}
+    </div>
+    <div class="field">
+      <label class="field__label" for="{{ form.school_class.id_for_label }}">Audience</label>
+      {{ form.school_class }}
+      <div class="field__hint">Leave as "School-wide" or pick a class to limit it to that class's students.</div>
+    </div>
+    <div class="field-row">
+      <div class="field">
+        <label class="field__label" for="{{ form.event_date.id_for_label }}">Event Date</label>
+        {{ form.event_date }}
+      </div>
+      <div class="field">
+        <label class="field__label" for="{{ form.response_deadline.id_for_label }}">Response Deadline</label>
+        {{ form.response_deadline }}
+      </div>
+    </div>
+    <div style="display:flex; gap:10px; margin-top: 22px;">
+      <button type="submit" class="btn btn--primary">{% if permission_slip %}Save Changes{% else %}Post Permission Slip{% endif %}</button>
+      <a href="{% url 'core:permission_slips' %}" class="btn btn--secondary">Cancel</a>
+    </div>
+  </form>
+</div>
+
+{% if permission_slip %}
+<div class="card card--pad-lg" style="max-width: 560px; margin-top: 16px;">
+  <p>See which students have responded and which are still pending.</p>
+  <a href="{% url 'core:permission_slip_detail' permission_slip.pk %}" class="btn btn--secondary">View Responses</a>
+</div>
+{% endif %}
+{% endblock %}

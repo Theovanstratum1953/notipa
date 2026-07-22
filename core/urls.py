@@ -35,33 +35,38 @@ urlpatterns = [
     path("homework/new/", views.homework_new, name="homework_new"),
     path("homework/<uuid:pk>/edit/", views.homework_edit, name="homework_edit"),
     path("homework/<uuid:pk>/delete/", views.homework_delete, name="homework_delete"),
+    path("fees/", views.fee_notices_list, name="fees"),
+    path("fees/new/", views.fee_notice_new, name="fee_notice_new"),
+    path("fees/<uuid:pk>/edit/", views.fee_notice_edit, name="fee_notice_edit"),
+    path("fees/<uuid:pk>/delete/", views.fee_notice_delete, name="fee_notice_delete"),
+    path("fees/<uuid:pk>/mark-paid/", views.fee_notice_mark_paid, name="fee_notice_mark_paid"),
     path(
-        "fees/",
-        views.placeholder,
-        {
-            "title": "Fee Notices",
-            "message": (
-                "Informational fee due-date notices (Track 2 / private "
-                "schools only) will appear here once the fee notice views "
-                "are built (Phase 1 build sequence, item 6). The FeeNotice "
-                "model already exists."
-            ),
-        },
-        name="fees",
+        "fees/<uuid:pk>/mark-waived/", views.fee_notice_mark_waived, name="fee_notice_mark_waived"
     ),
     path(
-        "permission-slips/",
-        views.placeholder,
-        {
-            "title": "Permission Slips",
-            "message": (
-                "Permission slips with trackable guardian responses will "
-                "appear here once those views are built (Phase 1 build "
-                "sequence, item 7). The PermissionSlip and "
-                "PermissionSlipResponse models already exist."
-            ),
-        },
-        name="permission_slips",
+        "fees/<uuid:pk>/mark-unpaid/", views.fee_notice_mark_unpaid, name="fee_notice_mark_unpaid"
+    ),
+    path("permission-slips/", views.permission_slips_list, name="permission_slips"),
+    path("permission-slips/new/", views.permission_slip_new, name="permission_slip_new"),
+    path(
+        "permission-slips/<uuid:pk>/",
+        views.permission_slip_detail,
+        name="permission_slip_detail",
+    ),
+    path(
+        "permission-slips/<uuid:pk>/edit/",
+        views.permission_slip_edit,
+        name="permission_slip_edit",
+    ),
+    path(
+        "permission-slips/<uuid:pk>/delete/",
+        views.permission_slip_delete,
+        name="permission_slip_delete",
+    ),
+    path(
+        "permission-slips/<uuid:pk>/students/<uuid:student_pk>/respond/",
+        views.permission_slip_respond,
+        name="permission_slip_respond",
     ),
     path("students/", views.students_list, name="students"),
     path("students/new/", views.student_new, name="student_new"),
@@ -98,16 +103,5 @@ urlpatterns = [
     path("classes/<uuid:pk>/edit/", views.class_edit, name="class_edit"),
     path("classes/<uuid:pk>/archive/", views.class_archive, name="class_archive"),
     path("classes/<uuid:pk>/restore/", views.class_restore, name="class_restore"),
-    path(
-        "settings/",
-        views.placeholder,
-        {
-            "title": "Settings",
-            "message": (
-                "School settings will appear here once the admin "
-                "onboarding flow is built (Phase 1 build sequence, item 3)."
-            ),
-        },
-        name="settings",
-    ),
+    path("settings/", views.school_settings, name="settings"),
 ]

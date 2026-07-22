@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+
+{% block title %}{% if fee_notice %}Edit Fee Notice{% else %}New Fee Notice{% endif %} — Notipa{% endblock %}
+
+{% block breadcrumb %}
+  <a href="{% url 'core:fees' %}">Fee Notices</a><span class="topbar__breadcrumb-sep">/</span><span class="topbar__breadcrumb-current">{% if fee_notice %}Edit{% else %}New{% endif %}</span>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <span class="page-header__eyebrow">Communication</span>
+    <h1>{% if fee_notice %}Edit Fee Notice{% else %}New Fee Notice{% endif %}</h1>
+    <p class="page-header__sub">Informational only — no payments are processed here. Visible to the student's guardians as soon as you save.</p>
+  </div>
+</div>
+
+<div class="card card--pad-lg" style="max-width: 560px;">
+  <form method="post">
+    {% csrf_token %}
+    <div class="field">
+      <label class="field__label" for="{{ form.student.id_for_label }}">Student</label>
+      {{ form.student }}
+      {% if form.student.errors %}<div class="field__hint text-brick">{{ form.student.errors|striptags }}</div>{% endif %}
+    </div>
+    <div class="field">
+      <label class="field__label" for="{{ form.title.id_for_label }}">Title</label>
+      {{ form.title }}
+      {% if form.title.errors %}<div class="field__hint text-brick">{{ form.title.errors|striptags }}</div>{% endif %}
+    </div>
+    <div class="field">
+      <label class="field__label" for="{{ form.description.id_for_label }}">Description</label>
+      {{ form.description }}
+    </div>
+    <div class="field-row">
+      <div class="field">
+        <label class="field__label" for="{{ form.amount.id_for_label }}">Amount</label>
+        {{ form.amount }}
+        {% if form.amount.errors %}<div class="field__hint text-brick">{{ form.amount.errors|striptags }}</div>{% endif %}
+      </div>
+      <div class="field">
+        <label class="field__label" for="{{ form.currency.id_for_label }}">Currency</label>
+        {{ form.currency }}
+      </div>
+    </div>
+    <div class="field">
+      <label class="field__label" for="{{ form.due_date.id_for_label }}">Due Date</label>
+      {{ form.due_date }}
+      {% if form.due_date.errors %}<div class="field__hint text-brick">{{ form.due_date.errors|striptags }}</div>{% endif %}
+    </div>
+    {% if fee_notice %}
+    <div class="field__hint">Status: {{ fee_notice.get_status_display }} — use Mark Paid / Waive / Mark Unpaid from the Fee Notices list to change it.</div>
+    {% endif %}
+    <div style="display:flex; gap:10px; margin-top: 22px;">
+      <button type="submit" class="btn btn--primary">{% if fee_notice %}Save Changes{% else %}Post Fee Notice{% endif %}</button>
+      <a href="{% url 'core:fees' %}" class="btn btn--secondary">Cancel</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

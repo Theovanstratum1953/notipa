@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+
+{% block title %}Settings — Notipa{% endblock %}
+
+{% block breadcrumb %}
+  <span class="topbar__breadcrumb-current">Settings</span>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <span class="page-header__eyebrow">Admin</span>
+    <h1>Settings</h1>
+    <p class="page-header__sub">{{ school.name }}'s own profile — visible to every admin and teacher at this school.</p>
+  </div>
+</div>
+
+<div class="card card--pad-lg" style="max-width: 520px;">
+  <form method="post">
+    {% csrf_token %}
+    <div class="field">
+      <label class="field__label" for="{{ form.name.id_for_label }}">School Name</label>
+      {{ form.name }}
+      {% if form.name.errors %}<div class="field__hint text-brick">{{ form.name.errors|striptags }}</div>{% endif %}
+    </div>
+    <div class="field-row">
+      <div class="field">
+        <label class="field__label" for="{{ form.country.id_for_label }}">Country Code</label>
+        {{ form.country }}
+        {% if form.country.errors %}<div class="field__hint text-brick">{{ form.country.errors|striptags }}</div>{% endif %}
+      </div>
+      <div class="field">
+        <label class="field__label" for="{{ form.default_language.id_for_label }}">Default Language</label>
+        {{ form.default_language }}
+      </div>
+    </div>
+    <div class="field-row">
+      <div class="field">
+        <label class="field__label" for="{{ form.timezone.id_for_label }}">Timezone</label>
+        {{ form.timezone }}
+      </div>
+      <div class="field">
+        <label class="field__label" for="{{ form.academic_year_start_month.id_for_label }}">Academic Year Starts (Month)</label>
+        {{ form.academic_year_start_month }}
+        <div class="field__hint">{{ form.academic_year_start_month.help_text }}</div>
+      </div>
+    </div>
+    <div class="field">
+      <span class="field__label">Tier</span>
+      <div>
+        {% if school.tier == "paid" %}
+          <span class="tag tag--active"><span class="tag__eyelet"></span>Paid (Track 2)</span>
+        {% else %}
+          <span class="tag tag--neutral"><span class="tag__eyelet"></span>Free (Track 1)</span>
+        {% endif %}
+      </div>
+      <div class="field__hint">Not editable here — contact the platform operator to change your school's licence tier.</div>
+    </div>
+    <div style="display:flex; gap:10px; margin-top: 22px;">
+      <button type="submit" class="btn btn--primary">Save Changes</button>
+      <a href="{% url 'core:dashboard' %}" class="btn btn--secondary">Cancel</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

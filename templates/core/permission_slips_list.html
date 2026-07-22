@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+
+{% block title %}Permission Slips — Notipa{% endblock %}
+
+{% block breadcrumb %}
+  <span class="topbar__breadcrumb-current">Permission Slips</span>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <span class="page-header__eyebrow">Communication</span>
+    <h1>Permission Slips</h1>
+    <p class="page-header__sub">{{ permission_slips|length }} permission slip{{ permission_slips|length|pluralize }} at {{ request.school.name }}.</p>
+  </div>
+  <a href="{% url 'core:permission_slip_new' %}" class="btn btn--primary">
+    <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+    New Permission Slip
+  </a>
+</div>
+
+<div class="table-wrap">
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>Title</th>
+        <th>Audience</th>
+        <th>Event Date</th>
+        <th>Response Deadline</th>
+        <th>Responses</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for s in permission_slips %}
+      <tr>
+        <td class="cell--title"><a href="{% url 'core:permission_slip_detail' s.pk %}">{{ s.title }}</a></td>
+        <td>
+          {% if s.school_class %}
+            <a href="{% url 'core:class_detail' s.school_class.pk %}">{{ s.school_class.name }}</a>
+          {% else %}
+            School-wide
+          {% endif %}
+        </td>
+        <td>
+          {% if s.event_date %}{{ s.event_date|date:"M j, Y" }}{% else %}<span class="text-dim">—</span>{% endif %}
+        </td>
+        <td>
+          {% if s.response_deadline %}{{ s.response_deadline|date:"M j, Y" }}{% else %}<span class="text-dim">—</span>{% endif %}
+        </td>
+        <td>
+          <span class="tag tag--active"><span class="tag__eyelet"></span>{{ s.response_yes }} yes</span>
+          <span class="tag tag--critical"><span class="tag__eyelet"></span>{{ s.response_no }} no</span>
+          <span class="tag tag--neutral"><span class="tag__eyelet"></span>{{ s.response_pending }} pending</span>
+        </td>
+        <td style="white-space: nowrap;">
+          <a href="{% url 'core:permission_slip_detail' s.pk %}" class="btn btn--secondary btn--sm">View</a>
+          <a href="{% url 'core:permission_slip_edit' s.pk %}" class="btn btn--secondary btn--sm">Edit</a>
+          <form method="post" action="{% url 'core:permission_slip_delete' s.pk %}" style="display:inline;" onsubmit="return confirm('Delete “{{ s.title|escapejs }}”? This can\'t be undone.');">
+            {% csrf_token %}
+            <button type="submit" class="btn btn--danger btn--sm">Delete</button>
+          </form>
+        </td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="6"><div class="empty-list">No permission slips posted yet.</div></td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}
