@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard — Notipa{% endblock %}
+
+{% block breadcrumb %}
+  <span class="topbar__breadcrumb-current">Dashboard</span>
+{% endblock %}
+
+{% block content %}
+{% if no_school %}
+<div class="card">
+  <div class="empty-state">
+    <div class="empty-state__icon">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18"/><path d="M5 21V7l7-4 7 4v14"/><path d="M9 21v-6h6v6"/></svg>
+    </div>
+    <div class="empty-state__title">You're not linked to a school yet</div>
+    <div class="empty-state__message">
+      Your account isn't a member of any school yet. Ask your school admin to add you.
+    </div>
+    {% if request.user.is_superuser %}
+    <a href="{% url 'core:school_setup' %}" class="btn btn--primary">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+      Set Up a School
+    </a>
+    {% endif %}
+  </div>
+</div>
+{% else %}
+<div class="page-header">
+  <div>
+    <span class="page-header__eyebrow">Overview</span>
+    <h1>Dashboard</h1>
+    <p class="page-header__sub">Everything happening at {{ request.school.name }} right now.</p>
+  </div>
+</div>
+
+<div class="metric-row">
+  <div class="metric-tile metric-tile--brand">
+    <div class="metric-tile__label">Students</div>
+    <div class="metric-tile__value">{{ student_count }}</div>
+  </div>
+  <div class="metric-tile metric-tile--brand">
+    <div class="metric-tile__label">Classes</div>
+    <div class="metric-tile__value">{{ class_count }}</div>
+  </div>
+  <div class="metric-tile">
+    <div class="metric-tile__label">Announcements</div>
+    <div class="metric-tile__value">{{ announcement_count }}</div>
+  </div>
+  <div class="metric-tile metric-tile--amber">
+    <div class="metric-tile__label">Pending Responses</div>
+    <div class="metric-tile__value">{{ pending_response_count }}</div>
+    <div class="metric-tile__sub metric-tile__sub--amber">Permission slips awaiting a guardian reply</div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card__header">
+    <h3 class="card__title">Recent Announcements</h3>
+    <a href="{% url 'core:announcements' %}" class="card__link">View all</a>
+  </div>
+  <div class="list-group">
+    {% for a in recent_announcements %}
+    <div class="list-row">
+      <div class="list-row__icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l18-7-7 18-2-8-9-3z"/></svg>
+      </div>
+      <div class="list-row__body">
+        <div class="list-row__title">{{ a.title }}</div>
+        <div class="list-row__meta">
+          {{ a.school.name }}{% if a.school_class %} · {{ a.school_class.name }}{% endif %}
+        </div>
+      </div>
+      <div class="list-row__end">
+        {% if a.published_at %}
+          <span class="tag tag--active"><span class="tag__eyelet"></span>Published</span>
+        {% else %}
+          <span class="tag tag--neutral"><span class="tag__eyelet"></span>Draft</span>
+        {% endif %}
+      </div>
+    </div>
+    {% empty %}
+    <div class="empty-list">No announcements yet.</div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+{% endblock %}

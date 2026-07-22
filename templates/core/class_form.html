@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+
+{% block title %}{% if school_class %}Edit Class{% else %}New Class{% endif %} — Notipa{% endblock %}
+
+{% block breadcrumb %}
+  <a href="{% url 'core:classes' %}">Classes</a><span class="topbar__breadcrumb-sep">/</span><span class="topbar__breadcrumb-current">{% if school_class %}Edit{% else %}New{% endif %}</span>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <span class="page-header__eyebrow">People</span>
+    <h1>{% if school_class %}Edit Class{% else %}New Class{% endif %}</h1>
+    {% if school_class and not school_class.is_active %}
+      <p class="page-header__sub">This class is archived — it's hidden from the default list and from dropdowns.</p>
+    {% endif %}
+  </div>
+</div>
+
+<div class="card card--pad-lg" style="max-width: 480px;">
+  <form method="post">
+    {% csrf_token %}
+    <div class="field">
+      <label class="field__label" for="{{ form.name.id_for_label }}">Name</label>
+      {{ form.name }}
+      {% if form.name.errors %}<div class="field__hint text-brick">{{ form.name.errors|striptags }}</div>{% endif %}
+    </div>
+    <div class="field">
+      <label class="field__label" for="{{ form.academic_year.id_for_label }}">Academic Year</label>
+      {{ form.academic_year }}
+      {% if form.academic_year.errors %}<div class="field__hint text-brick">{{ form.academic_year.errors|striptags }}</div>{% endif %}
+    </div>
+    <div class="field">
+      <label class="field__label" for="{{ form.homeroom_teacher.id_for_label }}">Homeroom Teacher</label>
+      {{ form.homeroom_teacher }}
+      <div class="field__hint">Optional — only teachers already added to this school appear here.</div>
+    </div>
+    <div style="display:flex; gap:10px; margin-top: 22px;">
+      <button type="submit" class="btn btn--primary">{% if school_class %}Save Changes{% else %}Create Class{% endif %}</button>
+      <a href="{% url 'core:classes' %}" class="btn btn--secondary">Cancel</a>
+    </div>
+  </form>
+</div>
+
+{% if school_class %}
+<div class="card card--pad-lg" style="max-width: 480px; margin-top: 16px;">
+  {% if school_class.is_active %}
+    <p>Archiving hides this class from the active list and from Homeroom Teacher / Class dropdowns. Students already assigned to it, and its history, are untouched.</p>
+    <form method="post" action="{% url 'core:class_archive' school_class.pk %}" onsubmit="return confirm('Archive “{{ school_class.name }}”?');">
+      {% csrf_token %}
+      <button type="submit" class="btn btn--danger">Archive Class</button>
+    </form>
+  {% else %}
+    <form method="post" action="{% url 'core:class_restore' school_class.pk %}">
+      {% csrf_token %}
+      <button type="submit" class="btn btn--secondary">Restore Class</button>
+    </form>
+  {% endif %}
+</div>
+{% endif %}
+{% endblock %}

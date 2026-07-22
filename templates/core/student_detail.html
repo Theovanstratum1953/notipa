@@ -1,0 +1,111 @@
+{% extends "base.html" %}
+
+{% block title %}{{ student.first_name }} {{ student.last_name }} — Notipa{% endblock %}
+
+{% block breadcrumb %}
+  <a href="{% url 'core:students' %}">Students</a><span class="topbar__breadcrumb-sep">/</span><span class="topbar__breadcrumb-current">{{ student.first_name }} {{ student.last_name }}</span>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <span class="page-header__eyebrow">People</span>
+    <h1>{{ student.first_name }} {{ student.last_name }}</h1>
+    <p class="page-header__sub">
+      {% if student.school_class %}
+        <a href="{% url 'core:class_detail' student.school_class.pk %}">{{ student.school_class.name }}</a>
+      {% else %}
+        <span class="text-dim">No class assigned</span>
+      {% endif %}
+      {% if student.student_id %} · {{ student.student_id }}{% endif %}
+      {% if not student.is_active %}
+        <span class="text-dim">· Archived</span>
+      {% endif %}
+    </p>
+  </div>
+  <a href="{% url 'core:student_edit' student.pk %}" class="btn btn--secondary">
+    Edit Student
+  </a>
+</div>
+
+<div class="page-header">
+  <div>
+    <h2 style="margin:0;">Guardians</h2>
+    <p class="page-header__sub">{{ guardian_links|length }} guardian{{ guardian_links|length|pluralize }} linked to this student.</p>
+  </div>
+</div>
+
+<div class="table-wrap" style="margin-bottom: 20px;">
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>Name</th>
+        <th>Relationship</th>
+        <th>Contact</th>
+        <th>Primary Contact</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for link in guardian_links %}
+      <tr>
+        <td class="cell--title"><a href="{% url 'core:guardian_detail' link.guardian_membership_pk %}">{{ link.guardian.get_full_name|default:link.guardian.username }}</a></td>
+        <td>{{ link.get_relationship_display }}</td>
+        <td>
+          {% if link.guardian.phone_number %}
+            {{ link.guardian.phone_number }}
+          {% elif link.guardian.email %}
+            {{ link.guardian.email }}
+          {% else %}
+            <span class="text-dim">—</span>
+          {% endif %}
+        </td>
+        <td>
+          {% if link.is_primary_contact %}
+            Yes
+          {% else %}
+            <span class="text-dim">—</span>
+          {% endif %}
+        </td>
+        <td>
+          <form method="post" action="{% url 'core:guardian_link_remove' student.pk link.pk %}" onsubmit="return confirm('Remove {{ link.guardian.get_full_name|default:link.guardian.username }} as a guardian of {{ student.first_name }}?');" style="margin:0;">
+            {% csrf_token %}
+            <button type="submit" class="btn btn--danger btn--sm">Remove</button>
+          </form>
+        </td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="5"><div class="empty-list">No guardians linked yet.</div></td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="card card--pad-lg" style="max-width: 480px;">
+  <h2 style="margin-top:0;">Add a Guardian</h2>
+  {% if form.fields.guardian.queryset|length == 0 %}
+    <p class="field__hint">No unlinked guardians available at this school. <a href="{% url 'core:guardian_new' %}">Add a guardian</a> first.</p>
+  {% else %}
+  <form method="post" action="{% url 'core:guardian_link_add' student.pk %}">
+    {% csrf_token %}
+    <div class="field">
+      <label class="field__label" for="{{ form.guardian.id_for_label }}">Guardian</label>
+      {{ form.guardian }}
+      {% if form.guardian.errors %}<div class="field__hint text-brick">{{ form.guardian.errors|striptags }}</div>{% endif %}
+    </div>
+    <div class="field">
+      <label class="field__label" for="{{ form.relationship.id_for_label }}">Relationship</label>
+      {{ form.relationship }}
+    </div>
+    <div class="field" style="display:flex; align-items:center; gap:8px;">
+      {{ form.is_primary_contact }}
+      <label class="field__label" for="{{ form.is_primary_contact.id_for_label }}" style="margin:0;">Primary contact</label>
+    </div>
+    {% if form.non_field_errors %}<div class="field__hint text-brick">{{ form.non_field_errors|striptags }}</div>{% endif %}
+    <div style="margin-top: 18px;">
+      <button type="submit" class="btn btn--primary">Link Guardian</button>
+    </div>
+  </form>
+  {% endif %}
+</div>
+{% endblock %}

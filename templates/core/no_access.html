@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+
+{% block title %}Access denied — Notipa{% endblock %}
+
+{% block breadcrumb %}
+  <span class="topbar__breadcrumb-current">Access denied</span>
+{% endblock %}
+
+{% block content %}
+<div class="card">
+  <div class="empty-state">
+    <div class="empty-state__icon">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg>
+    </div>
+    <div class="empty-state__title">You don't have access to this</div>
+    <div class="empty-state__message">
+      Your role at {{ request.school.name|default:"this school" }} doesn't include this section.
+      If that seems wrong, ask your school admin to check your role.
+    </div>
+  </div>
+</div>
+{% endblock %}

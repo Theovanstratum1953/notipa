@@ -1,0 +1,197 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{% block title %}Notipa{% endblock %}</title>
+<link rel="stylesheet" href="{% static 'core/css/app.css' %}">
+{% block extra_head %}{% endblock %}
+</head>
+<body>
+<div class="app-shell">
+
+  <aside class="sidebar">
+    <a href="{% url 'core:dashboard' %}" class="sidebar__wordmark">
+      <span class="sidebar__mark">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 11l18-7-7 18-2-8-9-3z"/>
+        </svg>
+      </span>
+      <span class="sidebar__wordmark-text">
+        Notipa
+        <span>Notify Parent</span>
+      </span>
+    </a>
+
+    <nav class="sidebar__section">
+      <div class="sidebar__section-label">Overview</div>
+      <ul>
+        <li class="sidebar__nav-item">
+          <a href="{% url 'core:dashboard' %}" class="{% if request.resolver_match.url_name == 'dashboard' %}active{% endif %}">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg>
+            Dashboard
+          </a>
+        </li>
+      </ul>
+    </nav>
+
+    <nav class="sidebar__section">
+      <div class="sidebar__section-label">Communication</div>
+      <ul>
+        <li class="sidebar__nav-item">
+          <a href="{% url 'core:announcements' %}" class="{% if request.resolver_match.url_name == 'announcements' %}active{% endif %}">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l18-7-7 18-2-8-9-3z"/></svg>
+            Announcements
+          </a>
+        </li>
+        <li class="sidebar__nav-item">
+          <a href="{% url 'core:homework' %}" class="{% if request.resolver_match.url_name == 'homework' %}active{% endif %}">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+            Homework
+          </a>
+        </li>
+        <li class="sidebar__nav-item">
+          <a href="{% url 'core:fees' %}" class="{% if request.resolver_match.url_name == 'fees' %}active{% endif %}">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg>
+            Fee Notices
+          </a>
+        </li>
+        <li class="sidebar__nav-item">
+          <a href="{% url 'core:permission_slips' %}" class="{% if request.resolver_match.url_name == 'permission_slips' %}active{% endif %}">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+            Permission Slips
+          </a>
+        </li>
+      </ul>
+    </nav>
+
+    {% if request.membership.role == "admin" or request.membership.role == "teacher" %}
+    <nav class="sidebar__section">
+      <div class="sidebar__section-label">People</div>
+      <ul>
+        <li class="sidebar__nav-item">
+          <a href="{% url 'core:students' %}" class="{% if request.resolver_match.url_name == 'students' %}active{% endif %}">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+            Students
+          </a>
+        </li>
+        <li class="sidebar__nav-item">
+          <a href="{% url 'core:classes' %}" class="{% if request.resolver_match.url_name == 'classes' %}active{% endif %}">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+            Classes
+          </a>
+        </li>
+        <li class="sidebar__nav-item">
+          <a href="{% url 'core:guardians' %}" class="{% if request.resolver_match.url_name == 'guardians' or request.resolver_match.url_name == 'guardian_new' or request.resolver_match.url_name == 'guardian_edit' %}active{% endif %}">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+            Guardians
+          </a>
+        </li>
+        {% if request.user.is_superuser or request.membership.role == "admin" %}
+        <li class="sidebar__nav-item">
+          <a href="{% url 'core:teachers' %}" class="{% if request.resolver_match.url_name == 'teachers' or request.resolver_match.url_name == 'teacher_new' %}active{% endif %}">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c0 1.66 2.69 3 6 3s6-1.34 6-3v-5"/></svg>
+            Teachers
+          </a>
+        </li>
+        {% endif %}
+      </ul>
+    </nav>
+    {% endif %}
+
+    {% if request.membership.role == "admin" or request.user.is_superuser %}
+    <nav class="sidebar__section">
+      <div class="sidebar__section-label">Admin</div>
+      <ul>
+        {% if request.membership.role == "admin" %}
+        <li class="sidebar__nav-item">
+          <a href="{% url 'core:settings' %}" class="{% if request.resolver_match.url_name == 'settings' %}active{% endif %}">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+            Settings
+          </a>
+        </li>
+        {% endif %}
+        {% if request.user.is_superuser %}
+        <li class="sidebar__nav-item">
+          <a href="{% url 'core:school_setup' %}" class="{% if request.resolver_match.url_name == 'school_setup' %}active{% endif %}">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18"/><path d="M5 21V7l7-4 7 4v14"/><path d="M9 21v-6h6v6"/></svg>
+            Set Up a School
+          </a>
+        </li>
+        {% endif %}
+      </ul>
+    </nav>
+    {% endif %}
+
+    <nav class="sidebar__section">
+      <div class="sidebar__section-label">Help</div>
+      <ul>
+        <li class="sidebar__nav-item">
+          <a href="{% url 'core:wiki' %}" class="{% if request.resolver_match.url_name == 'wiki' %}active{% endif %}">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+            User Manual
+          </a>
+        </li>
+      </ul>
+    </nav>
+
+    <div class="sidebar__footer">
+      {% if request.school %}
+        {{ request.school.name }}
+        <span class="text-dim">· {{ request.membership.get_role_display }}</span>
+      {% else %}
+        Notipa — pilot build
+      {% endif %}
+    </div>
+  </aside>
+
+  <div class="main-area">
+    <header class="topbar">
+      <div class="topbar__breadcrumb">
+        {% block breadcrumb %}
+          <span class="topbar__breadcrumb-current">Dashboard</span>
+        {% endblock %}
+      </div>
+      <div class="topbar__actions">
+        {% block topbar_actions %}{% endblock %}
+
+        {% if request.memberships|length > 1 %}
+        <form method="post" action="{% url 'core:switch_school' %}" style="margin: 0;">
+          {% csrf_token %}
+          <input type="hidden" name="next" value="{{ request.get_full_path }}">
+          <select name="school_id" class="select" onchange="this.form.submit()" aria-label="Switch school">
+            {% for m in request.memberships %}
+            <option value="{{ m.school_id }}" {% if request.school and m.school_id == request.school.id %}selected{% endif %}>{{ m.school.name }}</option>
+            {% endfor %}
+          </select>
+        </form>
+        {% endif %}
+
+        {% if request.user.is_authenticated %}
+        <form method="post" action="{% url 'logout' %}" style="margin: 0;">
+          {% csrf_token %}
+          <button type="submit" class="btn btn--ghost btn--sm">Log out</button>
+        </form>
+        {% endif %}
+      </div>
+    </header>
+
+    <main class="page-content">
+      <div class="page-content__inner">
+        {% if messages %}
+          {% for message in messages %}
+          <div class="alert {% if message.tags == 'error' %}alert--critical{% elif message.tags == 'warning' %}alert--warning{% else %}alert--brand{% endif %}">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+            <div class="alert__body">{{ message }}</div>
+          </div>
+          {% endfor %}
+        {% endif %}
+        {% block content %}{% endblock %}
+      </div>
+    </main>
+  </div>
+
+</div>
+</body>
+</html>

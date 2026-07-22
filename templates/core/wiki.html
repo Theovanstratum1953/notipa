@@ -1,0 +1,115 @@
+{% extends "base.html" %}
+
+{% block title %}User Manual — Notipa{% endblock %}
+
+{% block breadcrumb %}
+  <span class="topbar__breadcrumb-current">User Manual</span>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <span class="page-header__eyebrow">Help</span>
+    <h1>User Manual</h1>
+    <p class="page-header__sub">How to set up a school, manage the people in it — teachers, guardians, classes, and students — and post announcements.</p>
+  </div>
+</div>
+
+<div class="card card--pad-lg" style="margin-bottom: 20px;">
+  <h2 style="margin-top:0;">On this page</h2>
+  <ul style="list-style: disc; padding-left: 20px; margin: 0;">
+    <li style="margin-bottom: 6px;"><a href="#roles">Roles and how the app is scoped to your school</a></li>
+    <li style="margin-bottom: 6px;"><a href="#school-setup">Setting up a school</a></li>
+    <li style="margin-bottom: 6px;"><a href="#teachers">Teachers</a></li>
+    <li style="margin-bottom: 6px;"><a href="#guardians">Guardians</a></li>
+    <li style="margin-bottom: 6px;"><a href="#classes">Classes</a></li>
+    <li style="margin-bottom: 6px;"><a href="#students">Students</a></li>
+    <li style="margin-bottom: 6px;"><a href="#linking">Linking guardians and students</a></li>
+    <li style="margin-bottom: 6px;"><a href="#archiving">Editing and archiving records</a></li>
+    <li style="margin-bottom: 6px;"><a href="#announcements">Announcements</a></li>
+    <li style="margin-bottom: 6px;"><a href="#for-guardians">What a guardian sees</a></li>
+  </ul>
+</div>
+
+<div class="card card--pad-lg" id="roles" style="margin-bottom: 20px;">
+  <h2 style="margin-top:0;">Roles and how the app is scoped to your school</h2>
+  <p>Every person in the app is either an <strong>admin</strong>, a <strong>teacher</strong>, or a <strong>guardian</strong> at a given school. The same person can hold different roles at different schools — for example, a staff member whose own child also attends the school will be a teacher at that school and a guardian of their child, both at once.</p>
+  <p>Everything you see (classes, students, teachers, guardians) is scoped to whichever school is currently active for you. If you belong to more than one school, a school switcher appears in the top-right of every page so you can change which one you're looking at. If you're not linked to any school yet, most sections of the app will look empty until an admin adds you.</p>
+  <p><strong>Admins</strong> can do everything below, including adding and removing other teachers and admins. <strong>Teachers</strong> can manage Classes, Students, and Guardians, but can't add or remove other staff. <strong>Guardians</strong> see a different, much simpler experience — see <a href="#for-guardians">What a guardian sees</a> below — since the Students/Classes/Teachers/Guardians sections described in this page are for school staff, not guardians.</p>
+</div>
+
+<div class="card card--pad-lg" id="school-setup" style="margin-bottom: 20px;">
+  <h2 style="margin-top:0;">Setting up a school</h2>
+  <p>Creating a brand-new school is a one-time, platform-level action, so it's restricted to superusers (the technical account created when the app was first installed) rather than regular admins — otherwise anyone could spin up an unrelated school inside the same system.</p>
+  <p>If you're a superuser: use <strong>Set Up a School</strong> under Admin in the sidebar (or the button shown on the dashboard if you're not linked to any school yet). Fill in the school's name, country, default language, timezone, tier (Free for a public school, Paid for a licensed private school), and which month its academic year starts in. Submitting the form does two things at once: it creates the school, and it makes you that school's first admin, so you land on a working dashboard immediately rather than having to set up your own access afterward.</p>
+  <p>From there, add teachers, guardians, classes, and students using the sections below. If you need a second school (a different campus, or an unrelated school entirely), the same "Set Up a School" link is always available under Admin.</p>
+</div>
+
+<div class="card card--pad-lg" id="teachers" style="margin-bottom: 20px;">
+  <h2 style="margin-top:0;">Teachers</h2>
+  <p>Open <strong>Teachers</strong> in the sidebar (admins only) to see everyone with teacher or admin access at the current school.</p>
+  <p><strong>Adding a teacher:</strong> click <strong>New Teacher</strong>, fill in their name, choose whether they're a Teacher or an Admin, and set a username, optional email, optional phone number, and an initial password. There's no invite email or text message yet, so you'll need to pass that password to them directly — they can change it themselves later once a password-reset flow exists.</p>
+  <p><strong>Editing a teacher:</strong> click their name in the list, then <strong>Edit Teacher</strong>. You can update their name, contact details, and switch them between Teacher and Admin. Their username can't be changed here.</p>
+  <p><strong>Removing a teacher:</strong> there's no permanent delete. Instead, use <strong>Revoke Access</strong> on their page — this stops them from acting as a teacher/admin at this school but keeps their history (classes they taught, records they wrote) intact. If they come back, use <strong>Restore Access</strong> to reinstate them; nothing needs to be re-entered.</p>
+</div>
+
+<div class="card card--pad-lg" id="guardians" style="margin-bottom: 20px;">
+  <h2 style="margin-top:0;">Guardians</h2>
+  <p>Open <strong>Guardians</strong> in the sidebar (admins and teachers) to see everyone with guardian access at the current school.</p>
+  <p><strong>Adding a guardian:</strong> click <strong>New Guardian</strong> and fill in their name, phone number (required — this is the main way a guardian is identified, even though login is currently username/password), optional email, a username, and an initial password to share with them directly, the same way as Teachers above.</p>
+  <p><strong>Editing a guardian:</strong> click their name in the list, then <strong>Edit Guardian</strong>, to update their name and contact details.</p>
+  <p><strong>Removing a guardian:</strong> same pattern as Teachers — <strong>Revoke Access</strong> instead of deleting, <strong>Restore Access</strong> to bring them back. Their links to students aren't affected either way.</p>
+  <p>A guardian's own page also shows every student linked to them and lets you link another — see <a href="#linking">Linking guardians and students</a> below.</p>
+</div>
+
+<div class="card card--pad-lg" id="classes" style="margin-bottom: 20px;">
+  <h2 style="margin-top:0;">Classes</h2>
+  <p>Open <strong>Classes</strong> in the sidebar to see every class/section at the current school.</p>
+  <p><strong>Adding a class:</strong> click <strong>New Class</strong> and give it a name (e.g. "Grade 4 - Sampaguita"), an academic year (e.g. "2026-2027"), and optionally a homeroom teacher. Only teachers already added at this school show up in that dropdown — add the teacher first if they're missing (see <a href="#teachers">Teachers</a>).</p>
+  <p><strong>Viewing a class:</strong> click its name to see its homeroom teacher, any co-teachers, and its full student roster in one place.</p>
+  <p><strong>Editing a class:</strong> use <strong>Edit Class</strong> from either the list or the class's own page, to rename it, change its academic year, or reassign its homeroom teacher.</p>
+  <p><strong>Removing a class:</strong> use <strong>Archive Class</strong> rather than deleting. An archived class disappears from the default list and from the Class dropdown when adding/editing students, but any students already assigned to it, and its history, are untouched. Use the <strong>Show archived</strong> link at the top of the Classes list to find it again, and <strong>Restore Class</strong> to bring it back.</p>
+</div>
+
+<div class="card card--pad-lg" id="students" style="margin-bottom: 20px;">
+  <h2 style="margin-top:0;">Students</h2>
+  <p>Open <strong>Students</strong> in the sidebar to see the full student roster at the current school.</p>
+  <p><strong>Adding a student:</strong> click <strong>New Student</strong> and fill in their name and, optionally, date of birth, the school's own student ID, and a class. The class can always be assigned later if it's not decided yet.</p>
+  <p><strong>Viewing a student:</strong> click their name to see their details, which class they're in, and every guardian currently linked to them.</p>
+  <p><strong>Editing a student:</strong> use <strong>Edit Student</strong> from either the list or the student's own page.</p>
+  <p><strong>Removing a student:</strong> use <strong>Archive Student</strong> rather than deleting. This hides them from the default roster but keeps their guardian links, records, and history intact. Use <strong>Show archived</strong> on the Students list to find them again, and <strong>Restore Student</strong> to bring them back.</p>
+</div>
+
+<div class="card card--pad-lg" id="linking" style="margin-bottom: 20px;">
+  <h2 style="margin-top:0;">Linking guardians and students</h2>
+  <p>A student can have several guardians (mother, father, grandparent, or another relative/helper), and a guardian can have several students (siblings). You can create that connection from whichever side is more convenient:</p>
+  <p><strong>From a student's page:</strong> open the student, scroll to <strong>Add a Guardian</strong>, pick from guardians already added at this school, choose the relationship (mother/father/grandparent/guardian/other), and optionally mark them as the primary contact.</p>
+  <p><strong>From a guardian's page:</strong> open the guardian, scroll to <strong>Add a Student</strong>, and do the same in reverse — useful when you're adding several children to one guardian at once, since you only have to pick the guardian once.</p>
+  <p>Both forms create the exact same link, so it doesn't matter which one you use. Each row in either table has a <strong>Remove</strong> button, which deletes only that connection — the guardian's account and the student's own record are never affected by removing a link.</p>
+  <p><strong>Primary contact</strong> marks who should be contacted first for a given student (for example, once SMS notifications exist). Only one guardian per student can be marked primary at a time — marking a new one automatically un-marks the previous one, so it's never ambiguous.</p>
+</div>
+
+<div class="card card--pad-lg" id="archiving">
+  <h2 style="margin-top:0;">Editing and archiving records</h2>
+  <p>Teachers, Guardians, Classes, and Students can all be edited and "removed" — but nothing in this app is ever permanently deleted through the normal UI. Instead, removing a record archives it (or, for Teachers/Guardians, revokes their access): it disappears from the everyday lists so it doesn't clutter your view, but nothing about it — its history, its links to other records — is lost, and it can always be restored later.</p>
+  <p>Classes and Students show a <strong>Show archived</strong> link at the top of their list pages so you can find and restore something that was archived by mistake. Teachers and Guardians work slightly differently: revoked people still appear in their list with a "Revoked" status, since knowing who used to have access (and being able to quickly restore it) matters more there than tidying the list.</p>
+</div>
+
+<div class="card card--pad-lg" id="announcements" style="margin-bottom: 20px;">
+  <h2 style="margin-top:0;">Announcements</h2>
+  <p>Open <strong>Announcements</strong> in the sidebar (admins and teachers) to see every announcement at the current school, including drafts.</p>
+  <p><strong>Creating one:</strong> click <strong>New Announcement</strong> and write a title and body. Choose an audience — leave it as "School-wide" or pick a specific class to limit it to that class's guardians. New announcements always save as a <strong>draft</strong> first; guardians can't see it yet.</p>
+  <p><strong>Publishing:</strong> click <strong>Publish</strong> on the list or the announcement's own page once it's ready. This is a separate, deliberate step from saving — so writing a draft and making it visible to families can never happen by accident in the same click. <strong>Unpublish</strong> reverses it, hiding the announcement from guardians again without deleting it or losing anything.</p>
+  <p><strong>Editing:</strong> use <strong>Edit</strong> from the list, whether the announcement is a draft or already published.</p>
+  <p><strong>Deleting:</strong> unlike Teachers/Guardians/Classes/Students, there's no archive here — <strong>Delete</strong> removes an announcement permanently, along with any guardian read receipts for it. There's a confirmation prompt before it happens.</p>
+  <p>Guardians only ever see <em>published</em> announcements, and only the ones relevant to them: school-wide posts, plus posts for whichever class their own linked children are in. A guardian never sees drafts, or announcements aimed at a class their child isn't in.</p>
+</div>
+
+<div class="card card--pad-lg" id="for-guardians">
+  <h2 style="margin-top:0;">What a guardian sees</h2>
+  <p>Everything above except Announcements is for school staff. A guardian account sees something much simpler when they log in: their dashboard shows the child (or children) linked to their account at the current school, with each one's class and homeroom teacher. Clicking a child opens a read-only page with the same class/teacher information, plus that child's recent announcements — a guardian can't edit a student's details, archive anyone, or add/remove guardian links from their own account.</p>
+  <p>A guardian's own <strong>Announcements</strong> page (same sidebar link, different content than staff see) lists every published, relevant announcement with a <strong>Mark as read</strong> button on each unread one.</p>
+  <p>If a guardian logs in and sees no children listed, it means nobody has linked their account to a student yet — a school admin or teacher needs to do that from the student's or guardian's own page (see <a href="#linking">Linking guardians and students</a>).</p>
+  <p>Homework, fee notices, and permission slips aren't real features yet (see the placeholder pages in the sidebar), so a guardian's experience is intentionally limited to what already exists — it'll grow as those features are built.</p>
+</div>
+{% endblock %}

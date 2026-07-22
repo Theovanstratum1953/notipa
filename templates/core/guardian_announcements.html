@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+
+{% block title %}Announcements — Notipa{% endblock %}
+
+{% block breadcrumb %}
+  <span class="topbar__breadcrumb-current">Announcements</span>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <span class="page-header__eyebrow">Communication</span>
+    <h1>Announcements</h1>
+    <p class="page-header__sub">School-wide announcements and posts for your children's classes at {{ request.school.name }}.</p>
+  </div>
+</div>
+
+<div class="card">
+  <div class="list-group">
+    {% for a in announcements %}
+    <div class="list-row">
+      <div class="list-row__icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l18-7-7 18-2-8-9-3z"/></svg>
+      </div>
+      <div class="list-row__body">
+        <div class="list-row__title">{{ a.title }}</div>
+        <div class="list-row__meta">
+          {% if a.school_class %}{{ a.school_class.name }}{% else %}School-wide{% endif %} · {{ a.published_at|date:"M j, Y" }}
+        </div>
+        <p style="margin: 8px 0 0;">{{ a.body|linebreaksbr }}</p>
+      </div>
+      <div class="list-row__end">
+        {% if a.is_read %}
+          <span class="tag tag--neutral"><span class="tag__eyelet"></span>Read</span>
+        {% else %}
+          <form method="post" action="{% url 'core:announcement_mark_read' a.pk %}">
+            {% csrf_token %}
+            <button type="submit" class="btn btn--secondary btn--sm">Mark as read</button>
+          </form>
+        {% endif %}
+      </div>
+    </div>
+    {% empty %}
+    <div class="empty-list">No announcements yet.</div>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}

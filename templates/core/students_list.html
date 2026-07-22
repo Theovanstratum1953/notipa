@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+
+{% block title %}Students — Notipa{% endblock %}
+
+{% block breadcrumb %}
+  <span class="topbar__breadcrumb-current">Students</span>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <span class="page-header__eyebrow">People</span>
+    <h1>Students</h1>
+    <p class="page-header__sub">
+      {{ students|length }} student{{ students|length|pluralize }} at {{ request.school.name }}.
+      {% if show_archived %}
+        <a href="{% url 'core:students' %}">Hide archived</a>
+      {% else %}
+        <a href="{% url 'core:students' %}?show=archived">Show archived</a>
+      {% endif %}
+    </p>
+  </div>
+  <a href="{% url 'core:student_new' %}" class="btn btn--primary">
+    <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+    New Student
+  </a>
+</div>
+
+<div class="table-wrap">
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>Name</th>
+        <th>Class</th>
+        <th>Student ID</th>
+        <th class="cell--num">Guardians</th>
+        <th>Status</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for s in students %}
+      <tr>
+        <td class="cell--title"><a href="{% url 'core:student_detail' s.pk %}">{{ s.first_name }} {{ s.last_name }}</a></td>
+        <td>
+          {% if s.school_class %}
+            <a href="{% url 'core:class_detail' s.school_class.pk %}">{{ s.school_class.name }}</a>
+          {% else %}
+            <span class="text-dim">Unassigned</span>
+          {% endif %}
+        </td>
+        <td>
+          {% if s.student_id %}
+            <span class="asset-id"><span class="asset-id__eyelet"></span>{{ s.student_id }}</span>
+          {% else %}
+            <span class="text-dim">—</span>
+          {% endif %}
+        </td>
+        <td class="cell--num">{{ s.guardians.count }}</td>
+        <td>
+          {% if s.is_active %}
+            Active
+          {% else %}
+            <span class="text-dim">Archived</span>
+          {% endif %}
+        </td>
+        <td>
+          <a href="{% url 'core:student_edit' s.pk %}" class="btn btn--secondary btn--sm">Edit</a>
+        </td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="6"><div class="empty-list">No students yet.</div></td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

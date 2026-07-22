@@ -1,0 +1,70 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Log in — Notipa</title>
+<link rel="stylesheet" href="{% static 'core/css/app.css' %}">
+<style>
+  /* Bare auth layout — no sidebar/topbar, since there's no
+     authenticated session yet to build that shell around. */
+  html, body { overflow: auto; }
+  .auth-shell {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+  }
+  .auth-card { width: 100%; max-width: 360px; }
+  .auth-wordmark { display: flex; align-items: center; gap: 10px; margin-bottom: 24px; justify-content: center; }
+  .auth-wordmark span { font-family: var(--font-display); font-size: 17px; font-weight: 700; color: var(--ink); }
+  .auth-mark { width: 34px; height: 34px; border-radius: var(--radius-sm); background: var(--brand); display: flex; align-items: center; justify-content: center; }
+  .auth-mark svg { width: 19px; height: 19px; stroke: var(--ink-on-brand); }
+</style>
+</head>
+<body>
+<div class="auth-shell">
+  <div class="auth-card">
+    <div class="auth-wordmark">
+      <span class="auth-mark">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 11l18-7-7 18-2-8-9-3z"/>
+        </svg>
+      </span>
+      <span>Notipa</span>
+    </div>
+
+    <div class="card card--pad-lg">
+      <h2 style="margin-bottom: 4px;">Log in</h2>
+      <p class="text-muted" style="margin-bottom: 20px;">Access your school's announcements, homework, and permission slips.</p>
+
+      {% if form.errors %}
+      <div class="alert alert--critical">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg>
+        <div>
+          <div class="alert__title">Couldn't log you in</div>
+          <div class="alert__body">Check your username and password and try again.</div>
+        </div>
+      </div>
+      {% endif %}
+
+      <form method="post" action="{% url 'login' %}">
+        {% csrf_token %}
+        <div class="field">
+          <label class="field__label" for="id_username">Username</label>
+          <input type="text" name="username" id="id_username" class="input" autocapitalize="none" autocomplete="username" required autofocus>
+        </div>
+        <div class="field">
+          <label class="field__label" for="id_password">Password</label>
+          <input type="password" name="password" id="id_password" class="input" autocomplete="current-password" required>
+        </div>
+        <input type="hidden" name="next" value="{{ next }}">
+        <button type="submit" class="btn btn--primary" style="width: 100%; justify-content: center;">Log in</button>
+      </form>
+    </div>
+  </div>
+</div>
+</body>
+</html>

@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+
+{% block title %}Guardians — Notipa{% endblock %}
+
+{% block breadcrumb %}
+  <span class="topbar__breadcrumb-current">Guardians</span>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <span class="page-header__eyebrow">People</span>
+    <h1>Guardians</h1>
+    <p class="page-header__sub">{{ memberships|length }} guardian{{ memberships|length|pluralize }} at {{ request.school.name }} (including revoked).</p>
+  </div>
+  <a href="{% url 'core:guardian_new' %}" class="btn btn--primary">
+    <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+    New Guardian
+  </a>
+</div>
+
+<div class="table-wrap">
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>Name</th>
+        <th>Username</th>
+        <th>Contact</th>
+        <th class="cell--num">Linked Students</th>
+        <th>Status</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for m in memberships %}
+      <tr>
+        <td class="cell--title"><a href="{% url 'core:guardian_detail' m.pk %}">{{ m.user.get_full_name|default:m.user.username }}</a></td>
+        <td>{{ m.user.username }}</td>
+        <td>
+          {% if m.user.phone_number %}
+            {{ m.user.phone_number }}
+          {% elif m.user.email %}
+            {{ m.user.email }}
+          {% else %}
+            <span class="text-dim">—</span>
+          {% endif %}
+        </td>
+        <td class="cell--num">{{ m.user.students.count }}</td>
+        <td>
+          {% if m.is_active %}
+            Active
+          {% else %}
+            <span class="text-dim">Revoked</span>
+          {% endif %}
+        </td>
+        <td>
+          <a href="{% url 'core:guardian_edit' m.pk %}" class="btn btn--secondary btn--sm">Edit</a>
+        </td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="6"><div class="empty-list">No guardians added yet.</div></td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+
+{% block title %}{% if student %}Edit Student{% else %}New Student{% endif %} — Notipa{% endblock %}
+
+{% block breadcrumb %}
+  <a href="{% url 'core:students' %}">Students</a><span class="topbar__breadcrumb-sep">/</span><span class="topbar__breadcrumb-current">{% if student %}Edit{% else %}New{% endif %}</span>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <span class="page-header__eyebrow">People</span>
+    <h1>{% if student %}Edit Student{% else %}New Student{% endif %}</h1>
+    {% if student and not student.is_active %}
+      <p class="page-header__sub">This student is archived — hidden from the default list.</p>
+    {% endif %}
+  </div>
+</div>
+
+<div class="card card--pad-lg" style="max-width: 480px;">
+  <form method="post">
+    {% csrf_token %}
+    <div class="field-row">
+      <div class="field">
+        <label class="field__label" for="{{ form.first_name.id_for_label }}">First Name</label>
+        {{ form.first_name }}
+        {% if form.first_name.errors %}<div class="field__hint text-brick">{{ form.first_name.errors|striptags }}</div>{% endif %}
+      </div>
+      <div class="field">
+        <label class="field__label" for="{{ form.last_name.id_for_label }}">Last Name</label>
+        {{ form.last_name }}
+        {% if form.last_name.errors %}<div class="field__hint text-brick">{{ form.last_name.errors|striptags }}</div>{% endif %}
+      </div>
+    </div>
+    <div class="field">
+      <label class="field__label" for="{{ form.school_class.id_for_label }}">Class</label>
+      {{ form.school_class }}
+      <div class="field__hint">Optional — can be assigned later.</div>
+    </div>
+    <div class="field-row">
+      <div class="field">
+        <label class="field__label" for="{{ form.date_of_birth.id_for_label }}">Date of Birth</label>
+        {{ form.date_of_birth }}
+      </div>
+      <div class="field">
+        <label class="field__label" for="{{ form.student_id.id_for_label }}">Student ID</label>
+        {{ form.student_id }}
+      </div>
+    </div>
+    <div style="display:flex; gap:10px; margin-top: 22px;">
+      <button type="submit" class="btn btn--primary">{% if student %}Save Changes{% else %}Add Student{% endif %}</button>
+      <a href="{% url 'core:students' %}" class="btn btn--secondary">Cancel</a>
+    </div>
+  </form>
+</div>
+
+{% if student %}
+<div class="card card--pad-lg" style="max-width: 480px; margin-top: 16px;">
+  {% if student.is_active %}
+    <p>Archiving hides {{ student.first_name }} from the active roster. Guardians, records, and history are untouched.</p>
+    <form method="post" action="{% url 'core:student_archive' student.pk %}" onsubmit="return confirm('Archive {{ student.first_name }} {{ student.last_name }}?');">
+      {% csrf_token %}
+      <button type="submit" class="btn btn--danger">Archive Student</button>
+    </form>
+  {% else %}
+    <form method="post" action="{% url 'core:student_restore' student.pk %}">
+      {% csrf_token %}
+      <button type="submit" class="btn btn--secondary">Restore Student</button>
+    </form>
+  {% endif %}
+</div>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+
+{% block title %}Announcements — Notipa{% endblock %}
+
+{% block breadcrumb %}
+  <span class="topbar__breadcrumb-current">Announcements</span>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <span class="page-header__eyebrow">Communication</span>
+    <h1>Announcements</h1>
+    <p class="page-header__sub">{{ announcements|length }} announcement{{ announcements|length|pluralize }} at {{ request.school.name }}, including drafts.</p>
+  </div>
+  <a href="{% url 'core:announcement_new' %}" class="btn btn--primary">
+    <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+    New Announcement
+  </a>
+</div>
+
+<div class="table-wrap">
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>Title</th>
+        <th>Audience</th>
+        <th>Status</th>
+        <th>Created</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for a in announcements %}
+      <tr>
+        <td class="cell--title">{{ a.title }}</td>
+        <td>
+          {% if a.school_class %}
+            <a href="{% url 'core:class_detail' a.school_class.pk %}">{{ a.school_class.name }}</a>
+          {% else %}
+            School-wide
+          {% endif %}
+        </td>
+        <td>
+          {% if a.published_at %}
+            <span class="tag tag--active"><span class="tag__eyelet"></span>Published</span>
+          {% else %}
+            <span class="tag tag--neutral"><span class="tag__eyelet"></span>Draft</span>
+          {% endif %}
+        </td>
+        <td>{{ a.created_at|date:"M j, Y" }}</td>
+        <td style="white-space: nowrap;">
+          <a href="{% url 'core:announcement_edit' a.pk %}" class="btn btn--secondary btn--sm">Edit</a>
+          {% if a.published_at %}
+            <form method="post" action="{% url 'core:announcement_unpublish' a.pk %}" style="display:inline;">
+              {% csrf_token %}
+              <button type="submit" class="btn btn--secondary btn--sm">Unpublish</button>
+            </form>
+          {% else %}
+            <form method="post" action="{% url 'core:announcement_publish' a.pk %}" style="display:inline;">
+              {% csrf_token %}
+              <button type="submit" class="btn btn--primary btn--sm">Publish</button>
+            </form>
+          {% endif %}
+          <form method="post" action="{% url 'core:announcement_delete' a.pk %}" style="display:inline;" onsubmit="return confirm('Delete “{{ a.title|escapejs }}”? This can\'t be undone.');">
+            {% csrf_token %}
+            <button type="submit" class="btn btn--danger btn--sm">Delete</button>
+          </form>
+        </td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="5"><div class="empty-list">No announcements yet.</div></td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

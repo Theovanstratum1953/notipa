@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+
+{% block title %}New Teacher — Notipa{% endblock %}
+
+{% block breadcrumb %}
+  <a href="{% url 'core:teachers' %}">Teachers</a><span class="topbar__breadcrumb-sep">/</span><span class="topbar__breadcrumb-current">New</span>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <span class="page-header__eyebrow">People</span>
+    <h1>New Teacher</h1>
+    <p class="page-header__sub">There's no invite email yet — set an initial password here and share it with them directly.</p>
+  </div>
+</div>
+
+<div class="card card--pad-lg" style="max-width: 480px;">
+  <form method="post">
+    {% csrf_token %}
+    <div class="field-row">
+      <div class="field">
+        <label class="field__label" for="{{ form.first_name.id_for_label }}">First Name</label>
+        {{ form.first_name }}
+        {% if form.first_name.errors %}<div class="field__hint text-brick">{{ form.first_name.errors|striptags }}</div>{% endif %}
+      </div>
+      <div class="field">
+        <label class="field__label" for="{{ form.last_name.id_for_label }}">Last Name</label>
+        {{ form.last_name }}
+        {% if form.last_name.errors %}<div class="field__hint text-brick">{{ form.last_name.errors|striptags }}</div>{% endif %}
+      </div>
+    </div>
+    <div class="field">
+      <label class="field__label" for="{{ form.role.id_for_label }}">Role</label>
+      {{ form.role }}
+    </div>
+    <div class="field">
+      <label class="field__label" for="{{ form.username.id_for_label }}">Username</label>
+      {{ form.username }}
+      {% if form.username.errors %}<div class="field__hint text-brick">{{ form.username.errors|striptags }}</div>{% endif %}
+      <div class="field__hint">{{ form.username.help_text }}</div>
+    </div>
+    <div class="field-row">
+      <div class="field">
+        <label class="field__label" for="{{ form.email.id_for_label }}">Email</label>
+        {{ form.email }}
+        {% if form.email.errors %}<div class="field__hint text-brick">{{ form.email.errors|striptags }}</div>{% endif %}
+      </div>
+      <div class="field">
+        <label class="field__label" for="{{ form.phone_number.id_for_label }}">Phone Number</label>
+        {{ form.phone_number }}
+      </div>
+    </div>
+    <div class="field-row">
+      <div class="field">
+        <label class="field__label" for="{{ form.password1.id_for_label }}">Initial Password</label>
+        {{ form.password1 }}
+        {% if form.password1.errors %}<div class="field__hint text-brick">{{ form.password1.errors|striptags }}</div>{% endif %}
+      </div>
+      <div class="field">
+        <label class="field__label" for="{{ form.password2.id_for_label }}">Confirm Password</label>
+        {{ form.password2 }}
+        {% if form.password2.errors %}<div class="field__hint text-brick">{{ form.password2.errors|striptags }}</div>{% endif %}
+      </div>
+    </div>
+    <div style="display:flex; gap:10px; margin-top: 22px;">
+      <button type="submit" class="btn btn--primary">Add Teacher</button>
+      <a href="{% url 'core:teachers' %}" class="btn btn--secondary">Cancel</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

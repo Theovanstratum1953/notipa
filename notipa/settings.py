@@ -53,7 +53,14 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'core',
 ]
+
+# Custom user model (core.User) — replaces Django's default. Must be set
+# before the first migration; email is optional and phone_number is the
+# identifier that matters for guardians invited via SMS/link with no
+# email address (proposal Section 4.2).
+AUTH_USER_MODEL = 'core.User'
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
@@ -64,7 +71,20 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    # Must come after AuthenticationMiddleware — resolves request.user's
+    # active SchoolMembership onto request.school / request.membership.
+    # This is the enforcement seam for row-level multi-tenancy: views
+    # scope querysets by request.school, never by a client-supplied ID.
+    'core.middleware.ActiveSchoolMiddleware',
 ]
+
+# Authentication — standard Django username/password login for now.
+# Passwordless SMS-based guardian invites (proposal Section 4.2) are a
+# separate, later mechanism layered on top of the same core.User model;
+# this is just the login/logout plumbing every role needs regardless.
+LOGIN_URL = 'login'
+LOGIN_REDIRECT_URL = 'core:dashboard'
+LOGOUT_REDIRECT_URL = 'login'
 
 ROOT_URLCONF = 'notipa.urls'
 
@@ -164,6 +184,18 @@ STORAGES = {
         'BACKEND': 'whitenoise.storage.CompressedManifestStaticFilesStorage',
     },
 }
+
+
+# Media files (homework attachments, student record uploads)
+# https://docs.djangoproject.com/en/6.0/topics/files/
+#
+# Local filesystem storage for now (fine for the pilot). Proposal Section 5
+# flags object storage (S3-compatible — DigitalOcean Spaces) as the
+# eventual backend; swapping STORAGES['default'] later doesn't require any
+# model changes since FileField upload_to paths are storage-agnostic.
+
+MEDIA_URL = 'media/'
+MEDIA_ROOT = BASE_DIR / 'media'
 
 
 # Default primary key field type

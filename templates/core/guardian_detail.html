@@ -1,0 +1,108 @@
+{% extends "base.html" %}
+
+{% block title %}{{ membership.user.get_full_name|default:membership.user.username }} — Notipa{% endblock %}
+
+{% block breadcrumb %}
+  <a href="{% url 'core:guardians' %}">Guardians</a><span class="topbar__breadcrumb-sep">/</span><span class="topbar__breadcrumb-current">{{ membership.user.get_full_name|default:membership.user.username }}</span>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <span class="page-header__eyebrow">People</span>
+    <h1>{{ membership.user.get_full_name|default:membership.user.username }}</h1>
+    <p class="page-header__sub">
+      {% if membership.user.phone_number %}
+        {{ membership.user.phone_number }}
+      {% elif membership.user.email %}
+        {{ membership.user.email }}
+      {% endif %}
+      {% if not membership.is_active %}
+        <span class="text-dim">· Access revoked</span>
+      {% endif %}
+    </p>
+  </div>
+  <a href="{% url 'core:guardian_edit' membership.pk %}" class="btn btn--secondary">
+    Edit Guardian
+  </a>
+</div>
+
+<div class="page-header">
+  <div>
+    <h2 style="margin:0;">Students</h2>
+    <p class="page-header__sub">{{ guardian_links|length }} student{{ guardian_links|length|pluralize }} linked to this guardian.</p>
+  </div>
+</div>
+
+<div class="table-wrap" style="margin-bottom: 20px;">
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>Name</th>
+        <th>Class</th>
+        <th>Relationship</th>
+        <th>Primary Contact</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for link in guardian_links %}
+      <tr>
+        <td class="cell--title"><a href="{% url 'core:student_detail' link.student.pk %}">{{ link.student.first_name }} {{ link.student.last_name }}</a></td>
+        <td>
+          {% if link.student.school_class %}
+            <a href="{% url 'core:class_detail' link.student.school_class.pk %}">{{ link.student.school_class.name }}</a>
+          {% else %}
+            <span class="text-dim">Unassigned</span>
+          {% endif %}
+        </td>
+        <td>{{ link.get_relationship_display }}</td>
+        <td>
+          {% if link.is_primary_contact %}
+            Yes
+          {% else %}
+            <span class="text-dim">—</span>
+          {% endif %}
+        </td>
+        <td>
+          <form method="post" action="{% url 'core:student_link_remove' membership.pk link.pk %}" onsubmit="return confirm('Remove {{ link.student.first_name }} {{ link.student.last_name }} from this guardian?');" style="margin:0;">
+            {% csrf_token %}
+            <button type="submit" class="btn btn--danger btn--sm">Remove</button>
+          </form>
+        </td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="5"><div class="empty-list">No students linked yet.</div></td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="card card--pad-lg" style="max-width: 480px;">
+  <h2 style="margin-top:0;">Add a Student</h2>
+  {% if form.fields.student.queryset|length == 0 %}
+    <p class="field__hint">No unlinked students available at this school. <a href="{% url 'core:student_new' %}">Add a student</a> first.</p>
+  {% else %}
+  <form method="post" action="{% url 'core:student_link_add' membership.pk %}">
+    {% csrf_token %}
+    <div class="field">
+      <label class="field__label" for="{{ form.student.id_for_label }}">Student</label>
+      {{ form.student }}
+      {% if form.student.errors %}<div class="field__hint text-brick">{{ form.student.errors|striptags }}</div>{% endif %}
+    </div>
+    <div class="field">
+      <label class="field__label" for="{{ form.relationship.id_for_label }}">Relationship</label>
+      {{ form.relationship }}
+    </div>
+    <div class="field" style="display:flex; align-items:center; gap:8px;">
+      {{ form.is_primary_contact }}
+      <label class="field__label" for="{{ form.is_primary_contact.id_for_label }}" style="margin:0;">Primary contact</label>
+    </div>
+    {% if form.non_field_errors %}<div class="field__hint text-brick">{{ form.non_field_errors|striptags }}</div>{% endif %}
+    <div style="margin-top: 18px;">
+      <button type="submit" class="btn btn--primary">Link Student</button>
+    </div>
+  </form>
+  {% endif %}
+</div>
+{% endblock %}

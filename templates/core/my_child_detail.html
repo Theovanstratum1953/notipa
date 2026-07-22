@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+
+{% block title %}{{ student.first_name }} {{ student.last_name }} — Notipa{% endblock %}
+
+{% block breadcrumb %}
+  <a href="{% url 'core:dashboard' %}">Dashboard</a><span class="topbar__breadcrumb-sep">/</span><span class="topbar__breadcrumb-current">{{ student.first_name }} {{ student.last_name }}</span>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <span class="page-header__eyebrow">Your Children</span>
+    <h1>{{ student.first_name }} {{ student.last_name }}</h1>
+    <p class="page-header__sub">
+      Your relationship: {{ link.get_relationship_display }}
+      {% if link.is_primary_contact %} · Primary contact{% endif %}
+    </p>
+  </div>
+</div>
+
+<div class="card card--pad-lg" style="max-width: 480px; margin-bottom: 20px;">
+  <h2 style="margin-top:0;">Class</h2>
+  {% if student.school_class %}
+    <p><strong>{{ student.school_class.name }}</strong> ({{ student.school_class.academic_year }})</p>
+    <p>
+      <strong>Homeroom teacher:</strong>
+      {% if student.school_class.homeroom_teacher %}
+        {{ student.school_class.homeroom_teacher.user.get_full_name|default:student.school_class.homeroom_teacher.user.username }}
+        {% if student.school_class.homeroom_teacher.user.email %} · {{ student.school_class.homeroom_teacher.user.email }}{% endif %}
+      {% else %}
+        <span class="text-dim">Unassigned</span>
+      {% endif %}
+    </p>
+  {% else %}
+    <p class="text-dim">Not assigned to a class yet.</p>
+  {% endif %}
+</div>
+
+<div class="card card--pad-lg" style="max-width: 480px; margin-bottom: 20px;">
+  <div class="card__header">
+    <h2 class="card__title" style="margin:0;">Recent Announcements</h2>
+    <a href="{% url 'core:announcements' %}" class="card__link">View all</a>
+  </div>
+  <div class="list-group">
+    {% for a in announcements %}
+    <div class="list-row">
+      <div class="list-row__icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l18-7-7 18-2-8-9-3z"/></svg>
+      </div>
+      <div class="list-row__body">
+        <div class="list-row__title">{{ a.title }}</div>
+        <div class="list-row__meta">
+          {% if a.school_class %}{{ a.school_class.name }}{% else %}School-wide{% endif %} · {{ a.published_at|date:"M j, Y" }}
+        </div>
+      </div>
+    </div>
+    {% empty %}
+    <div class="empty-list">No announcements yet.</div>
+    {% endfor %}
+  </div>
+</div>
+
+<div class="card card--pad-lg" style="max-width: 480px;">
+  <h2 style="margin-top:0;">Coming soon</h2>
+  <p class="text-dim">Homework, fee notices, and permission slips for {{ student.first_name }} will appear here once those features are built.</p>
+</div>
+{% endblock %}

@@ -1,0 +1,122 @@
+from django.urls import path
+
+from . import views
+
+app_name = "core"
+
+urlpatterns = [
+    path("", views.dashboard, name="dashboard"),
+    path("switch-school/", views.switch_school, name="switch_school"),
+    path("setup/school/", views.school_setup, name="school_setup"),
+    path("wiki/", views.wiki, name="wiki"),
+    path("my-children/<uuid:pk>/", views.my_child_detail, name="my_child_detail"),
+    path("announcements/", views.announcements_list, name="announcements"),
+    path("announcements/new/", views.announcement_new, name="announcement_new"),
+    path("announcements/<uuid:pk>/edit/", views.announcement_edit, name="announcement_edit"),
+    path(
+        "announcements/<uuid:pk>/publish/",
+        views.announcement_publish,
+        name="announcement_publish",
+    ),
+    path(
+        "announcements/<uuid:pk>/unpublish/",
+        views.announcement_unpublish,
+        name="announcement_unpublish",
+    ),
+    path(
+        "announcements/<uuid:pk>/delete/", views.announcement_delete, name="announcement_delete"
+    ),
+    path(
+        "announcements/<uuid:pk>/mark-read/",
+        views.announcement_mark_read,
+        name="announcement_mark_read",
+    ),
+    path(
+        "homework/",
+        views.placeholder,
+        {
+            "title": "Homework",
+            "message": (
+                "Homework posting with due dates and attachments will "
+                "appear here once the homework views are built (Phase 1 "
+                "build sequence, item 5). The Homework model already exists."
+            ),
+        },
+        name="homework",
+    ),
+    path(
+        "fees/",
+        views.placeholder,
+        {
+            "title": "Fee Notices",
+            "message": (
+                "Informational fee due-date notices (Track 2 / private "
+                "schools only) will appear here once the fee notice views "
+                "are built (Phase 1 build sequence, item 6). The FeeNotice "
+                "model already exists."
+            ),
+        },
+        name="fees",
+    ),
+    path(
+        "permission-slips/",
+        views.placeholder,
+        {
+            "title": "Permission Slips",
+            "message": (
+                "Permission slips with trackable guardian responses will "
+                "appear here once those views are built (Phase 1 build "
+                "sequence, item 7). The PermissionSlip and "
+                "PermissionSlipResponse models already exist."
+            ),
+        },
+        name="permission_slips",
+    ),
+    path("students/", views.students_list, name="students"),
+    path("students/new/", views.student_new, name="student_new"),
+    path("students/<uuid:pk>/", views.student_detail, name="student_detail"),
+    path("students/<uuid:pk>/edit/", views.student_edit, name="student_edit"),
+    path("students/<uuid:pk>/archive/", views.student_archive, name="student_archive"),
+    path("students/<uuid:pk>/restore/", views.student_restore, name="student_restore"),
+    path("students/<uuid:pk>/guardians/add/", views.guardian_link_add, name="guardian_link_add"),
+    path(
+        "students/<uuid:pk>/guardians/<uuid:link_pk>/remove/",
+        views.guardian_link_remove,
+        name="guardian_link_remove",
+    ),
+    path("teachers/", views.teachers_list, name="teachers"),
+    path("teachers/new/", views.teacher_new, name="teacher_new"),
+    path("teachers/<uuid:pk>/edit/", views.teacher_edit, name="teacher_edit"),
+    path("teachers/<uuid:pk>/revoke/", views.teacher_revoke, name="teacher_revoke"),
+    path("teachers/<uuid:pk>/restore/", views.teacher_restore, name="teacher_restore"),
+    path("guardians/", views.guardians_list, name="guardians"),
+    path("guardians/new/", views.guardian_new, name="guardian_new"),
+    path("guardians/<uuid:pk>/", views.guardian_detail, name="guardian_detail"),
+    path("guardians/<uuid:pk>/edit/", views.guardian_edit, name="guardian_edit"),
+    path("guardians/<uuid:pk>/revoke/", views.guardian_revoke, name="guardian_revoke"),
+    path("guardians/<uuid:pk>/restore/", views.guardian_restore, name="guardian_restore"),
+    path("guardians/<uuid:pk>/students/add/", views.student_link_add, name="student_link_add"),
+    path(
+        "guardians/<uuid:pk>/students/<uuid:link_pk>/remove/",
+        views.student_link_remove,
+        name="student_link_remove",
+    ),
+    path("classes/", views.classes_list, name="classes"),
+    path("classes/new/", views.class_new, name="class_new"),
+    path("classes/<uuid:pk>/", views.class_detail, name="class_detail"),
+    path("classes/<uuid:pk>/edit/", views.class_edit, name="class_edit"),
+    path("classes/<uuid:pk>/archive/", views.class_archive, name="class_archive"),
+    path("classes/<uuid:pk>/restore/", views.class_restore, name="class_restore"),
+    path(
+        "settings/",
+        views.placeholder,
+        {
+            "title": "Settings",
+            "message": (
+                "School settings will appear here once the admin "
+                "onboarding flow is built (Phase 1 build sequence, item 3)."
+            ),
+        },
+        name="settings",
+    ),
+]

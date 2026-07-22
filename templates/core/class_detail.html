@@ -1,0 +1,101 @@
+{% extends "base.html" %}
+
+{% block title %}{{ school_class.name }} — Notipa{% endblock %}
+
+{% block breadcrumb %}
+  <a href="{% url 'core:classes' %}">Classes</a><span class="topbar__breadcrumb-sep">/</span><span class="topbar__breadcrumb-current">{{ school_class.name }}</span>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <span class="page-header__eyebrow">People</span>
+    <h1>{{ school_class.name }}</h1>
+    <p class="page-header__sub">
+      {{ school_class.academic_year }} — {{ school_class.school.name }}
+      {% if not school_class.is_active %}
+        <span class="text-dim">· Archived</span>
+      {% endif %}
+    </p>
+  </div>
+  <a href="{% url 'core:class_edit' school_class.pk %}" class="btn btn--secondary">
+    Edit Class
+  </a>
+</div>
+
+<div class="card card--pad-lg" style="max-width: 640px; margin-bottom: 20px;">
+  <h2 style="margin-top:0;">Teachers</h2>
+  <p>
+    <strong>Homeroom:</strong>
+    {% if school_class.homeroom_teacher %}
+      {{ school_class.homeroom_teacher.user.get_full_name|default:school_class.homeroom_teacher.user.username }}
+    {% else %}
+      <span class="text-dim">Unassigned</span>
+    {% endif %}
+  </p>
+  {% if school_class.additional_teachers.all %}
+    <p><strong>Co-teachers:</strong>
+      {% for t in school_class.additional_teachers.all %}{{ t.user.get_full_name|default:t.user.username }}{% if not forloop.last %}, {% endif %}{% endfor %}
+    </p>
+  {% endif %}
+</div>
+
+<div class="page-header">
+  <div>
+    <h2 style="margin:0;">Students</h2>
+    <p class="page-header__sub">
+      {{ students|length }} student{{ students|length|pluralize }} in this class.
+      {% if show_archived %}
+        <a href="{% url 'core:class_detail' school_class.pk %}">Hide archived</a>
+      {% else %}
+        <a href="{% url 'core:class_detail' school_class.pk %}?show=archived">Show archived</a>
+      {% endif %}
+    </p>
+  </div>
+  <a href="{% url 'core:student_new' %}" class="btn btn--primary">
+    <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+    New Student
+  </a>
+</div>
+
+<div class="table-wrap">
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>Name</th>
+        <th>Student ID</th>
+        <th class="cell--num">Guardians</th>
+        <th>Status</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for s in students %}
+      <tr>
+        <td class="cell--title"><a href="{% url 'core:student_detail' s.pk %}">{{ s.first_name }} {{ s.last_name }}</a></td>
+        <td>
+          {% if s.student_id %}
+            <span class="asset-id"><span class="asset-id__eyelet"></span>{{ s.student_id }}</span>
+          {% else %}
+            <span class="text-dim">—</span>
+          {% endif %}
+        </td>
+        <td class="cell--num">{{ s.guardians.count }}</td>
+        <td>
+          {% if s.is_active %}
+            Active
+          {% else %}
+            <span class="text-dim">Archived</span>
+          {% endif %}
+        </td>
+        <td>
+          <a href="{% url 'core:student_edit' s.pk %}" class="btn btn--secondary btn--sm">Edit</a>
+        </td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="5"><div class="empty-list">No students in this class yet.</div></td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

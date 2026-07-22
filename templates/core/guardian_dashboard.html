@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard — Notipa{% endblock %}
+
+{% block breadcrumb %}
+  <span class="topbar__breadcrumb-current">Dashboard</span>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <span class="page-header__eyebrow">Overview</span>
+    <h1>Your Children</h1>
+    <p class="page-header__sub">Linked to your account at {{ request.school.name }}.</p>
+  </div>
+</div>
+
+<div class="card">
+  <div class="list-group">
+    {% for link in guardian_links %}
+    <a href="{% url 'core:my_child_detail' link.student.pk %}" class="list-row" style="text-decoration:none; color:inherit;">
+      <div class="list-row__icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
+      </div>
+      <div class="list-row__body">
+        <div class="list-row__title">{{ link.student.first_name }} {{ link.student.last_name }}</div>
+        <div class="list-row__meta">
+          {% if link.student.school_class %}
+            {{ link.student.school_class.name }}
+            {% if link.student.school_class.homeroom_teacher %}
+              · {{ link.student.school_class.homeroom_teacher.user.get_full_name|default:link.student.school_class.homeroom_teacher.user.username }}
+            {% endif %}
+          {% else %}
+            No class assigned yet
+          {% endif %}
+        </div>
+      </div>
+      <div class="list-row__end">
+        {% if link.is_primary_contact %}
+          <span class="tag tag--active"><span class="tag__eyelet"></span>Primary contact</span>
+        {% endif %}
+      </div>
+    </a>
+    {% empty %}
+    <div class="empty-list">No children are linked to your account yet at this school. Ask your school admin to link you as a guardian.</div>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}

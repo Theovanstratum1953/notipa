@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+
+{% block title %}Edit Teacher — Notipa{% endblock %}
+
+{% block breadcrumb %}
+  <a href="{% url 'core:teachers' %}">Teachers</a><span class="topbar__breadcrumb-sep">/</span><span class="topbar__breadcrumb-current">Edit</span>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <span class="page-header__eyebrow">People</span>
+    <h1>Edit {{ membership.user.get_full_name|default:membership.user.username }}</h1>
+    {% if not membership.is_active %}
+      <p class="page-header__sub">Access is revoked — they can't log in to this school until restored.</p>
+    {% endif %}
+  </div>
+</div>
+
+<div class="card card--pad-lg" style="max-width: 480px;">
+  <form method="post">
+    {% csrf_token %}
+    <div class="field">
+      <label class="field__label">Username</label>
+      <div>{{ membership.user.username }}</div>
+      <div class="field__hint">Can't be changed here.</div>
+    </div>
+    <div class="field-row">
+      <div class="field">
+        <label class="field__label" for="{{ form.first_name.id_for_label }}">First Name</label>
+        {{ form.first_name }}
+        {% if form.first_name.errors %}<div class="field__hint text-brick">{{ form.first_name.errors|striptags }}</div>{% endif %}
+      </div>
+      <div class="field">
+        <label class="field__label" for="{{ form.last_name.id_for_label }}">Last Name</label>
+        {{ form.last_name }}
+        {% if form.last_name.errors %}<div class="field__hint text-brick">{{ form.last_name.errors|striptags }}</div>{% endif %}
+      </div>
+    </div>
+    <div class="field">
+      <label class="field__label" for="{{ form.role.id_for_label }}">Role</label>
+      {{ form.role }}
+      {% if form.role.errors %}<div class="field__hint text-brick">{{ form.role.errors|striptags }}</div>{% endif %}
+    </div>
+    <div class="field-row">
+      <div class="field">
+        <label class="field__label" for="{{ form.email.id_for_label }}">Email</label>
+        {{ form.email }}
+        {% if form.email.errors %}<div class="field__hint text-brick">{{ form.email.errors|striptags }}</div>{% endif %}
+      </div>
+      <div class="field">
+        <label class="field__label" for="{{ form.phone_number.id_for_label }}">Phone Number</label>
+        {{ form.phone_number }}
+      </div>
+    </div>
+    <div style="display:flex; gap:10px; margin-top: 22px;">
+      <button type="submit" class="btn btn--primary">Save Changes</button>
+      <a href="{% url 'core:teachers' %}" class="btn btn--secondary">Cancel</a>
+    </div>
+  </form>
+</div>
+
+<div class="card card--pad-lg" style="max-width: 480px; margin-top: 16px;">
+  {% if membership.is_active %}
+    <p>Revoking access removes their ability to log in to this school. Their history (classes taught, records authored, etc.) is untouched, and access can be restored later.</p>
+    <form method="post" action="{% url 'core:teacher_revoke' membership.pk %}" onsubmit="return confirm('Revoke access for {{ membership.user }}?');">
+      {% csrf_token %}
+      <button type="submit" class="btn btn--danger">Revoke Access</button>
+    </form>
+  {% else %}
+    <form method="post" action="{% url 'core:teacher_restore' membership.pk %}">
+      {% csrf_token %}
+      <button type="submit" class="btn btn--secondary">Restore Access</button>
+    </form>
+  {% endif %}
+</div>
+{% endblock %}

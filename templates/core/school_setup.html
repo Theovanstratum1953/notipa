@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+
+{% block title %}Set Up a School — Notipa{% endblock %}
+
+{% block breadcrumb %}
+  <span class="topbar__breadcrumb-current">Set Up a School</span>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <span class="page-header__eyebrow">Platform setup</span>
+    <h1>Set Up a School</h1>
+    <p class="page-header__sub">Creates a new school and makes you its admin — no database access needed.</p>
+  </div>
+</div>
+
+<div class="card card--pad-lg" style="max-width: 520px;">
+  <form method="post">
+    {% csrf_token %}
+    <div class="field">
+      <label class="field__label" for="{{ form.name.id_for_label }}">School Name</label>
+      {{ form.name }}
+      {% if form.name.errors %}<div class="field__hint text-brick">{{ form.name.errors|striptags }}</div>{% endif %}
+    </div>
+    <div class="field-row">
+      <div class="field">
+        <label class="field__label" for="{{ form.country.id_for_label }}">Country Code</label>
+        {{ form.country }}
+        {% if form.country.errors %}<div class="field__hint text-brick">{{ form.country.errors|striptags }}</div>{% endif %}
+      </div>
+      <div class="field">
+        <label class="field__label" for="{{ form.default_language.id_for_label }}">Default Language</label>
+        {{ form.default_language }}
+      </div>
+    </div>
+    <div class="field-row">
+      <div class="field">
+        <label class="field__label" for="{{ form.timezone.id_for_label }}">Timezone</label>
+        {{ form.timezone }}
+      </div>
+      <div class="field">
+        <label class="field__label" for="{{ form.academic_year_start_month.id_for_label }}">Academic Year Starts (Month)</label>
+        {{ form.academic_year_start_month }}
+        <div class="field__hint">{{ form.academic_year_start_month.help_text }}</div>
+      </div>
+    </div>
+    <div class="field">
+      <label class="field__label" for="{{ form.tier.id_for_label }}">Tier</label>
+      {{ form.tier }}
+      <div class="field__hint">{{ form.tier.help_text }}</div>
+    </div>
+    <div style="display:flex; gap:10px; margin-top: 22px;">
+      <button type="submit" class="btn btn--primary">Create School</button>
+      <a href="{% url 'core:dashboard' %}" class="btn btn--secondary">Cancel</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

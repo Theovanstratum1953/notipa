@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+
+{% block title %}{% if announcement %}Edit Announcement{% else %}New Announcement{% endif %} — Notipa{% endblock %}
+
+{% block breadcrumb %}
+  <a href="{% url 'core:announcements' %}">Announcements</a><span class="topbar__breadcrumb-sep">/</span><span class="topbar__breadcrumb-current">{% if announcement %}Edit{% else %}New{% endif %}</span>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <span class="page-header__eyebrow">Communication</span>
+    <h1>{% if announcement %}Edit Announcement{% else %}New Announcement{% endif %}</h1>
+    {% if announcement %}
+      <p class="page-header__sub">
+        {% if announcement.published_at %}
+          Published {{ announcement.published_at|date:"M j, Y, g:i a" }} — guardians can see this.
+        {% else %}
+          Still a draft — guardians can't see this until you publish it.
+        {% endif %}
+      </p>
+    {% else %}
+      <p class="page-header__sub">Saves as a draft first — publish it separately when you're ready for guardians to see it.</p>
+    {% endif %}
+  </div>
+</div>
+
+<div class="card card--pad-lg" style="max-width: 560px;">
+  <form method="post">
+    {% csrf_token %}
+    <div class="field">
+      <label class="field__label" for="{{ form.title.id_for_label }}">Title</label>
+      {{ form.title }}
+      {% if form.title.errors %}<div class="field__hint text-brick">{{ form.title.errors|striptags }}</div>{% endif %}
+    </div>
+    <div class="field">
+      <label class="field__label" for="{{ form.body.id_for_label }}">Body</label>
+      {{ form.body }}
+      {% if form.body.errors %}<div class="field__hint text-brick">{{ form.body.errors|striptags }}</div>{% endif %}
+    </div>
+    <div class="field">
+      <label class="field__label" for="{{ form.school_class.id_for_label }}">Audience</label>
+      {{ form.school_class }}
+      <div class="field__hint">Leave as "School-wide" or pick a class to limit it to that class's guardians.</div>
+    </div>
+    <div style="display:flex; gap:10px; margin-top: 22px;">
+      <button type="submit" class="btn btn--primary">{% if announcement %}Save Changes{% else %}Save Draft{% endif %}</button>
+      <a href="{% url 'core:announcements' %}" class="btn btn--secondary">Cancel</a>
+    </div>
+  </form>
+</div>
+
+{% if announcement %}
+<div class="card card--pad-lg" style="max-width: 560px; margin-top: 16px;">
+  {% if announcement.published_at %}
+    <p>Unpublishing hides this from guardians again without deleting it — you can republish later.</p>
+    <form method="post" action="{% url 'core:announcement_unpublish' announcement.pk %}">
+      {% csrf_token %}
+      <button type="submit" class="btn btn--secondary">Unpublish</button>
+    </form>
+  {% else %}
+    <p>Publishing makes this visible to guardians immediately.</p>
+    <form method="post" action="{% url 'core:announcement_publish' announcement.pk %}">
+      {% csrf_token %}
+      <button type="submit" class="btn btn--primary">Publish</button>
+    </form>
+  {% endif %}
+</div>
+{% endif %}
+{% endblock %}

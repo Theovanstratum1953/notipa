@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+
+{% block title %}Teachers — Notipa{% endblock %}
+
+{% block breadcrumb %}
+  <span class="topbar__breadcrumb-current">Teachers</span>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <span class="page-header__eyebrow">People</span>
+    <h1>Teachers</h1>
+    <p class="page-header__sub">{{ memberships|length }} staff member{{ memberships|length|pluralize }} at {{ request.school.name }} (including revoked).</p>
+  </div>
+  <a href="{% url 'core:teacher_new' %}" class="btn btn--primary">
+    <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+    New Teacher
+  </a>
+</div>
+
+<div class="table-wrap">
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>Name</th>
+        <th>Role</th>
+        <th>Username</th>
+        <th>Contact</th>
+        <th>Status</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for m in memberships %}
+      <tr>
+        <td class="cell--title">{{ m.user.get_full_name|default:m.user.username }}</td>
+        <td>{{ m.get_role_display }}</td>
+        <td>{{ m.user.username }}</td>
+        <td>
+          {% if m.user.email %}
+            {{ m.user.email }}
+          {% elif m.user.phone_number %}
+            {{ m.user.phone_number }}
+          {% else %}
+            <span class="text-dim">—</span>
+          {% endif %}
+        </td>
+        <td>
+          {% if m.is_active %}
+            Active
+          {% else %}
+            <span class="text-dim">Revoked</span>
+          {% endif %}
+        </td>
+        <td>
+          <a href="{% url 'core:teacher_edit' m.pk %}" class="btn btn--secondary btn--sm">Edit</a>
+        </td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="6"><div class="empty-list">No teachers or admins added yet.</div></td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}
