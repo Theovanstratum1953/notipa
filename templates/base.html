@@ -6,6 +6,16 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>{% block title %}Notipa{% endblock %}</title>
 <link rel="stylesheet" href="{% static 'core/css/app.css' %}">
+
+<link rel="manifest" href="{% static 'core/manifest.json' %}">
+<meta name="theme-color" content="#0B6E4F">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Notipa">
+<link rel="icon" href="{% static 'core/icons/icon-192.png' %}">
+<link rel="apple-touch-icon" href="{% static 'core/icons/apple-touch-icon.png' %}">
+
 {% block extra_head %}{% endblock %}
 </head>
 <body>
@@ -193,5 +203,17 @@
   </div>
 
 </div>
+
+<script>
+  // Served from the domain root (see WHITENOISE_ROOT in notipa/settings.py),
+  // not /static/, so its scope is "/" and it can control the whole app.
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', function () {
+      navigator.serviceWorker.register('/sw.js').catch(function (err) {
+        console.warn('Notipa: service worker registration failed', err);
+      });
+    });
+  }
+</script>
 </body>
 </html>

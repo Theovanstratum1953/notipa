@@ -188,6 +188,14 @@ STORAGES = {
     },
 }
 
+# Lets WhiteNoise serve a handful of files at the domain root (no /static/
+# prefix) straight off disk, bypassing collectstatic entirely. The PWA
+# service worker (root_static/sw.js) needs this: a service worker's default
+# control scope is the directory it's served from, so /static/core/sw.js
+# would only ever control pages under /static/core/ — serving it from
+# /sw.js instead lets it control the whole app.
+WHITENOISE_ROOT = BASE_DIR / 'root_static'
+
 
 # Media files (homework attachments, student record uploads)
 # https://docs.djangoproject.com/en/6.0/topics/files/

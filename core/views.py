@@ -1602,3 +1602,14 @@ def guardian_restore(request, pk):
     membership.save(update_fields=["is_active"])
     messages.success(request, f"{membership.user}'s access has been restored.")
     return redirect("core:guardians")
+
+
+def offline(request):
+    """
+    Fallback page the PWA service worker (root_static/sw.js) serves for
+    page navigations when the network is unreachable and nothing cached
+    matches the requested URL. Deliberately not @login_required — a
+    logged-out or session-expired browser can still be offline, and this
+    page has no data of its own to protect.
+    """
+    return render(request, "core/offline.html")
