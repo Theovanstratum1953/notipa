@@ -21,7 +21,7 @@
 <body>
 <div class="app-shell">
 
-  <aside class="sidebar">
+  <aside class="sidebar" id="sidebar">
     <a href="{% url 'core:dashboard' %}" class="sidebar__wordmark">
       <span class="sidebar__mark">
         <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -156,8 +156,13 @@
     </div>
   </aside>
 
+  <div class="sidebar-scrim" id="sidebarScrim"></div>
+
   <div class="main-area">
     <header class="topbar">
+      <button type="button" class="topbar__menu-btn" id="sidebarToggle" aria-label="Open menu" aria-expanded="false" aria-controls="sidebar">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+      </button>
       <div class="topbar__breadcrumb">
         {% block breadcrumb %}
           <span class="topbar__breadcrumb-current">Dashboard</span>
@@ -214,6 +219,38 @@
       });
     });
   }
+</script>
+
+<script>
+  // Below 640px the sidebar (#sidebar) is a slide-in drawer, hidden by
+  // default — see the @media (max-width: 640px) block in app.css. This
+  // wires the hamburger button and the tap-to-close scrim to it.
+  (function () {
+    var toggle = document.getElementById('sidebarToggle');
+    var sidebar = document.getElementById('sidebar');
+    var scrim = document.getElementById('sidebarScrim');
+    if (!toggle || !sidebar || !scrim) return;
+
+    function closeSidebar() {
+      sidebar.classList.remove('sidebar--open');
+      scrim.classList.remove('sidebar-scrim--visible');
+      toggle.setAttribute('aria-expanded', 'false');
+    }
+    function openSidebar() {
+      sidebar.classList.add('sidebar--open');
+      scrim.classList.add('sidebar-scrim--visible');
+      toggle.setAttribute('aria-expanded', 'true');
+    }
+
+    toggle.addEventListener('click', function () {
+      if (sidebar.classList.contains('sidebar--open')) {
+        closeSidebar();
+      } else {
+        openSidebar();
+      }
+    });
+    scrim.addEventListener('click', closeSidebar);
+  })();
 </script>
 </body>
 </html>

@@ -211,6 +211,34 @@ ul, ol { margin: 0; padding: 0; list-style: none; }
 
 .topbar__actions { display: flex; align-items: center; gap: 10px; margin-left: auto; }
 
+/* Hamburger button that opens the sidebar drawer on narrow screens.
+   Hidden on desktop; the 640px media query below turns it on. */
+.topbar__menu-btn {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
+  border-radius: var(--radius-sm);
+  border: 1.5px solid var(--line);
+  background: var(--surface);
+  color: var(--ink);
+  cursor: pointer;
+}
+.topbar__menu-btn svg { width: 18px; height: 18px; stroke: currentColor; }
+.topbar__menu-btn:hover { background: var(--paper-sunken); }
+
+/* Scrim behind the sidebar drawer on narrow screens. */
+.sidebar-scrim {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(18, 24, 26, .45);
+  z-index: 35;
+}
+.sidebar-scrim--visible { display: block; }
+
 /* =====================================================
    PAGE CONTENT
    ===================================================== */
@@ -661,7 +689,21 @@ select:focus-visible, textarea:focus-visible {
 }
 
 @media (max-width: 640px) {
-  .sidebar { display: none; }
+  /* The sidebar becomes a slide-in drawer instead of disappearing —
+     it's toggled by #sidebarToggle in base.html (adds/removes
+     .sidebar--open), with #sidebarScrim as the tap-to-close backdrop. */
+  .topbar__menu-btn { display: inline-flex; }
+  .sidebar {
+    position: fixed;
+    inset: 0 auto 0 0;
+    z-index: 40;
+    transform: translateX(-100%);
+    transition: transform .2s ease;
+  }
+  .sidebar--open {
+    transform: translateX(0);
+    box-shadow: 8px 0 24px rgba(18, 24, 26, .18);
+  }
   .page-content { padding: 22px 18px 40px; }
   .metric-row { grid-template-columns: 1fr; }
 }
