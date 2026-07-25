@@ -1,6 +1,6 @@
 # Notipa — Notify Parent
 
-Notipa is a school-to-parent communication platform: a single place for a school's admins and teachers to manage classes and students, keep guardians (parents, grandparents, or other caregivers) linked to the right children, and post announcements — built with a public-school-friendly free tier and a licensed tier for private schools in mind.
+Notipa is a school-to-parent communication platform: a single place for a school's admins and teachers to manage classes and students, keep guardians (parents, grandparents, or other caregivers) linked to the right children, and post announcements.
 
 It's a multi-tenant Django app: every school is its own isolated tenant, a person's role (admin, teacher, or guardian) is scoped per school rather than global, and guardians are designed to be reachable without needing an app-store account (phone-number-first, SMS/link invites planned).
 
