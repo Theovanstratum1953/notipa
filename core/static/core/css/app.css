@@ -506,7 +506,18 @@ ul, ol { margin: 0; padding: 0; list-style: none; }
 /* =====================================================
    DATA TABLE
    ===================================================== */
-.table-wrap { background: var(--surface); border: 1.5px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+.table-wrap {
+  background: var(--surface);
+  border: 1.5px solid var(--line);
+  border-radius: var(--radius);
+  /* Was `overflow: hidden` — on a phone-width viewport a 5+ column table
+     (title, status, dates, action buttons) doesn't fit, and `hidden`
+     silently clipped the right-hand columns with no way to reach them.
+     `overflow-x: auto` lets a narrow screen scroll sideways to see
+     everything instead of losing it. */
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
 
 .data-table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 
@@ -706,4 +717,29 @@ select:focus-visible, textarea:focus-visible {
   }
   .page-content { padding: 22px 18px 40px; }
   .metric-row { grid-template-columns: 1fr; }
+
+  /* Every list (Announcements, Fee Notices, Permission Slips, etc.) puts
+     its Edit/Publish/Delete controls in the last column of a .data-table
+     row. That column pins to the right edge of the (now horizontally
+     scrollable — see .table-wrap above) table, so those controls are
+     always on screen instead of requiring a teacher to first discover
+     they need to scroll sideways to find them. Letting the cell wrap
+     (instead of forcing one unbroken row of buttons) keeps the pinned
+     column from swallowing most of a 390px-wide screen on rows with
+     several actions, like Fee Notices' Edit / Mark Paid / Waive / Delete. */
+  .data-table th:last-child,
+  .data-table td:last-child {
+    position: sticky;
+    right: 0;
+    background: var(--surface);
+    white-space: normal !important;
+    box-shadow: -6px 0 8px -6px rgba(18, 24, 26, .18);
+  }
+  .data-table th:last-child { background: var(--paper-sunken); }
+  .data-table tbody tr:hover td:last-child { background: var(--paper); }
+  .data-table td:last-child .btn,
+  .data-table td:last-child form {
+    margin: 2px 4px 2px 0;
+    display: inline-block !important;
+  }
 }
