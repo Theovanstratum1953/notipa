@@ -32,6 +32,51 @@
         {% if h.attachment %}
           <p style="margin: 8px 0 0;"><a href="{{ h.attachment.url }}" target="_blank" rel="noopener">Download attachment</a></p>
         {% endif %}
+
+        {% if h.accepts_submissions %}
+          {% for row in h.my_submission_rows %}
+          <div class="card" style="margin-top: 12px; padding: 12px 14px;">
+            <div style="display:flex; align-items:center; justify-content:space-between; gap: 10px; flex-wrap: wrap;">
+              <strong>{{ row.student.first_name }} {{ row.student.last_name }}</strong>
+              {% if row.status == "submitted" %}
+                <span class="tag tag--active"><span class="tag__eyelet"></span>Submitted {{ row.submission.submitted_at|date:"M j, Y, g:i a" }}</span>
+              {% elif row.status == "late" %}
+                <span class="tag tag--critical"><span class="tag__eyelet"></span>Late — submitted {{ row.submission.submitted_at|date:"M j, Y, g:i a" }}</span>
+              {% elif row.status == "missing" %}
+                <span class="tag tag--critical"><span class="tag__eyelet"></span>Missing</span>
+              {% else %}
+                <span class="tag tag--neutral"><span class="tag__eyelet"></span>Not submitted</span>
+              {% endif %}
+            </div>
+            {% if row.submission %}
+              <p class="field__hint" style="margin: 6px 0 0;">
+                Current file: <a href="{{ row.submission.file.url }}" target="_blank" rel="noopener">{{ row.submission.file.name }}</a>
+                {% if row.submission.note %} — “{{ row.submission.note }}”{% endif %}
+              </p>
+            {% endif %}
+            {% if row.can_replace %}
+            <form method="post" action="{% url 'core:homework_submit' h.pk row.student.pk %}" enctype="multipart/form-data" style="margin-top: 10px;">
+              {% csrf_token %}
+              <div class="field-row">
+                <div class="field">
+                  <label class="field__label" for="file-{{ h.pk }}-{{ row.student.pk }}">{% if row.submission %}Replace file{% else %}Attach file{% endif %} (image or PDF)</label>
+                  <input class="input" type="file" name="file" id="file-{{ h.pk }}-{{ row.student.pk }}" accept="image/*,.pdf" required>
+                </div>
+                <div class="field">
+                  <label class="field__label" for="note-{{ h.pk }}-{{ row.student.pk }}">Note (optional)</label>
+                  <input class="input" type="text" name="note" id="note-{{ h.pk }}-{{ row.student.pk }}" value="{{ row.submission.note|default:'' }}">
+                </div>
+              </div>
+              <div style="margin-top: 8px;">
+                <button type="submit" class="btn btn--primary btn--sm">{% if row.submission %}Replace Submission{% else %}Submit{% endif %}</button>
+              </div>
+            </form>
+            {% else %}
+              <p class="field__hint" style="margin: 6px 0 0;">The due date has passed, so this can no longer be replaced.</p>
+            {% endif %}
+          </div>
+          {% endfor %}
+        {% endif %}
       </div>
     </div>
     {% empty %}

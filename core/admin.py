@@ -7,6 +7,7 @@ from .models import (
     FeeNotice,
     GuardianLink,
     Homework,
+    HomeworkSubmission,
     PermissionSlip,
     PermissionSlipResponse,
     School,
@@ -98,12 +99,29 @@ class AnnouncementAdmin(admin.ModelAdmin):
     inlines = [AnnouncementReadInline]
 
 
+class HomeworkSubmissionInline(admin.TabularInline):
+    model = HomeworkSubmission
+    extra = 0
+    autocomplete_fields = ["student", "submitted_by"]
+
+
 @admin.register(Homework)
 class HomeworkAdmin(admin.ModelAdmin):
-    list_display = ("title", "school_class", "due_date", "created_by", "created_at")
-    list_filter = ("school_class",)
+    list_display = (
+        "title", "school_class", "due_date", "accepts_submissions", "created_by", "created_at",
+    )
+    list_filter = ("school_class", "accepts_submissions")
     search_fields = ("title", "description")
     autocomplete_fields = ["school_class", "created_by"]
+    inlines = [HomeworkSubmissionInline]
+
+
+@admin.register(HomeworkSubmission)
+class HomeworkSubmissionAdmin(admin.ModelAdmin):
+    list_display = ("homework", "student", "status", "submitted_by", "submitted_at")
+    list_filter = ("status",)
+    search_fields = ("student__first_name", "student__last_name", "homework__title")
+    autocomplete_fields = ["homework", "student", "submitted_by"]
 
 
 @admin.register(FeeNotice)

@@ -1,11 +1,13 @@
 import shutil
 import tempfile
+from datetime import date, datetime
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 from django.urls import reverse
+from django.utils import timezone
 
 from .models import (
     Announcement,
@@ -13,6 +15,7 @@ from .models import (
     FeeNotice,
     GuardianLink,
     Homework,
+    HomeworkSubmission,
     PermissionSlip,
     PermissionSlipResponse,
     School,
@@ -2435,3 +2438,366 @@ class GuardianPermissionSlipResponseTests(TestCase):
             r.permission_slip.title for r in response.context["permission_slip_responses"]
         }
         self.assertEqual(titles, {"Grade 4 trip", "School-wide photo consent"})
+
+
+@override_settings(MEDIA_ROOT=tempfile.mkdtemp())
+class HomeworkSubmissionRosterTests(TestCase):
+    """
+    Covers the teacher/admin side of homework submissions:
+    core.views.homework_detail's per-student roster and the
+    accepts_submissions toggle on core.forms.HomeworkForm.
+    submitted/late/missing/not-yet-submitted is derived purely from
+    due_date vs. whether/when a HomeworkSubmission row exists — none of
+    it is a manually-set value, so these tests seed rows directly onto
+    the model rather than only exercising it through homework_submit.
+    """
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(settings.MEDIA_ROOT, ignore_errors=True)
+        super().tearDownClass()
+
+    def setUp(self):
+        self.school_a = School.objects.create(name="School A", country="PH")
+        self.school_b = School.objects.create(name="School B", country="PH")
+
+        self.admin_a = User.objects.create_user(username="admin_a", password="pw12345!")
+        SchoolMembership.objects.create(
+            user=self.admin_a, school=self.school_a, role=SchoolMembership.Role.ADMIN
+        )
+        self.admin_b = User.objects.create_user(username="admin_b", password="pw12345!")
+        SchoolMembership.objects.create(
+            user=self.admin_b, school=self.school_b, role=SchoolMembership.Role.ADMIN
+        )
+        self.guardian_a = User.objects.create_user(username="guardian_a", password="pw12345!")
+        SchoolMembership.objects.create(
+            user=self.guardian_a, school=self.school_a, role=SchoolMembership.Role.GUARDIAN
+        )
+
+        self.class_a = SchoolClass.objects.create(
+            school=self.school_a, name="Grade 4 - Sampaguita", academic_year="2026-2027"
+        )
+        self.class_b = SchoolClass.objects.create(
+            school=self.school_b, name="Grade 5 - Rosal", academic_year="2026-2027"
+        )
+
+        self.student_submitted = Student.objects.create(
+            school=self.school_a, school_class=self.class_a, first_name="Ana", last_name="Reyes"
+        )
+        self.student_late = Student.objects.create(
+            school=self.school_a, school_class=self.class_a, first_name="Ben", last_name="Santos"
+        )
+        self.student_missing = Student.objects.create(
+            school=self.school_a, school_class=self.class_a, first_name="Cara", last_name="Lopez"
+        )
+        GuardianLink.objects.create(guardian=self.guardian_a, student=self.student_submitted)
+        GuardianLink.objects.create(guardian=self.guardian_a, student=self.student_late)
+        GuardianLink.objects.create(guardian=self.guardian_a, student=self.student_missing)
+
+        self.homework = Homework.objects.create(
+            school_class=self.class_a,
+            title="Reading log",
+            due_date=date(2026, 7, 20),
+            accepts_submissions=True,
+            created_by=self.admin_a,
+        )
+        HomeworkSubmission.objects.create(
+            homework=self.homework,
+            student=self.student_submitted,
+            file=SimpleUploadedFile("page.jpg", b"img-bytes", content_type="image/jpeg"),
+            submitted_at=timezone.make_aware(datetime(2026, 7, 18, 9, 0)),
+            status=HomeworkSubmission.Status.SUBMITTED,
+        )
+        HomeworkSubmission.objects.create(
+            homework=self.homework,
+            student=self.student_late,
+            file=SimpleUploadedFile("page2.jpg", b"img-bytes", content_type="image/jpeg"),
+            submitted_at=timezone.make_aware(datetime(2026, 7, 22, 9, 0)),
+            status=HomeworkSubmission.Status.LATE,
+        )
+        # student_missing has no HomeworkSubmission row at all — that
+        # absence is what "missing" means, not a stored status value.
+
+    def test_roster_shows_submitted_late_and_missing(self):
+        self.client.login(username="admin_a", password="pw12345!")
+        response = self.client.get(reverse("core:homework_detail", args=[self.homework.pk]))
+        statuses = {row["student"].id: row["status"] for row in response.context["roster"]}
+        self.assertEqual(statuses[self.student_submitted.id], "submitted")
+        self.assertEqual(statuses[self.student_late.id], "late")
+        self.assertEqual(statuses[self.student_missing.id], "missing")
+
+    def test_not_yet_due_shows_not_submitted_rather_than_missing(self):
+        self.homework.due_date = date(2099, 1, 1)
+        self.homework.save(update_fields=["due_date"])
+        self.client.login(username="admin_a", password="pw12345!")
+        response = self.client.get(reverse("core:homework_detail", args=[self.homework.pk]))
+        statuses = {row["student"].id: row["status"] for row in response.context["roster"]}
+        self.assertEqual(statuses[self.student_missing.id], "not_submitted")
+
+    def test_cannot_view_other_school_homework_roster(self):
+        other_homework = Homework.objects.create(
+            school_class=self.class_b, title="Not yours", created_by=self.admin_b
+        )
+        self.client.login(username="admin_a", password="pw12345!")
+        response = self.client.get(reverse("core:homework_detail", args=[other_homework.pk]))
+        self.assertEqual(response.status_code, 404)
+
+    def test_guardian_cannot_view_roster(self):
+        self.client.login(username="guardian_a", password="pw12345!")
+        response = self.client.get(reverse("core:homework_detail", args=[self.homework.pk]))
+        self.assertEqual(response.status_code, 403)
+
+    def test_accepts_submissions_defaults_off(self):
+        homework = Homework.objects.create(
+            school_class=self.class_a, title="Plain homework", created_by=self.admin_a
+        )
+        self.assertFalse(homework.accepts_submissions)
+
+    def test_accepts_submissions_can_be_turned_on_via_form(self):
+        self.client.login(username="admin_a", password="pw12345!")
+        response = self.client.post(
+            reverse("core:homework_new"),
+            {
+                "school_class": str(self.class_a.pk),
+                "title": "New homework",
+                "description": "",
+                "accepts_submissions": "on",
+            },
+        )
+        self.assertRedirects(response, reverse("core:homework"))
+        homework = Homework.objects.get(title="New homework")
+        self.assertTrue(homework.accepts_submissions)
+
+
+@override_settings(MEDIA_ROOT=tempfile.mkdtemp())
+class HomeworkSubmissionGuardianPermissionTests(TestCase):
+    """
+    Covers the guardian side of homework submissions and the permission
+    boundary the development plan calls out explicitly: a guardian
+    cannot see or submit for a student they aren't linked to, even
+    within the same school and class, and can't submit at all against
+    homework that doesn't accept submissions.
+    """
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(settings.MEDIA_ROOT, ignore_errors=True)
+        super().tearDownClass()
+
+    def setUp(self):
+        self.school_a = School.objects.create(name="School A", country="PH")
+        self.admin_a = User.objects.create_user(username="admin_a", password="pw12345!")
+        SchoolMembership.objects.create(
+            user=self.admin_a, school=self.school_a, role=SchoolMembership.Role.ADMIN
+        )
+        self.guardian = User.objects.create_user(username="guardian_a", password="pw12345!")
+        SchoolMembership.objects.create(
+            user=self.guardian, school=self.school_a, role=SchoolMembership.Role.GUARDIAN
+        )
+        self.other_guardian = User.objects.create_user(username="guardian_z", password="pw12345!")
+        SchoolMembership.objects.create(
+            user=self.other_guardian, school=self.school_a, role=SchoolMembership.Role.GUARDIAN
+        )
+
+        self.class_a = SchoolClass.objects.create(
+            school=self.school_a, name="Grade 4 - Sampaguita", academic_year="2026-2027"
+        )
+        self.my_child = Student.objects.create(
+            school=self.school_a, school_class=self.class_a, first_name="Ana", last_name="Reyes"
+        )
+        self.unrelated_child = Student.objects.create(
+            school=self.school_a, school_class=self.class_a, first_name="Ben", last_name="Cruz"
+        )
+        GuardianLink.objects.create(guardian=self.guardian, student=self.my_child)
+        GuardianLink.objects.create(guardian=self.other_guardian, student=self.unrelated_child)
+
+        self.homework = Homework.objects.create(
+            school_class=self.class_a,
+            title="Reading log",
+            due_date=date(2026, 8, 15),
+            accepts_submissions=True,
+            created_by=self.admin_a,
+        )
+        self.closed_homework = Homework.objects.create(
+            school_class=self.class_a,
+            title="No submissions here",
+            accepts_submissions=False,
+            created_by=self.admin_a,
+        )
+
+    def _upload(self, name="page.jpg", content=b"img-bytes", content_type="image/jpeg"):
+        return SimpleUploadedFile(name, content, content_type=content_type)
+
+    def test_guardian_can_submit_for_own_child(self):
+        self.client.login(username="guardian_a", password="pw12345!")
+        response = self.client.post(
+            reverse("core:homework_submit", args=[self.homework.pk, self.my_child.pk]),
+            {"file": self._upload(), "note": "Done!"},
+        )
+        self.assertRedirects(response, reverse("core:homework"))
+        submission = HomeworkSubmission.objects.get(homework=self.homework, student=self.my_child)
+        self.assertEqual(submission.status, HomeworkSubmission.Status.SUBMITTED)
+        self.assertEqual(submission.submitted_by, self.guardian)
+        self.assertEqual(submission.note, "Done!")
+
+    def test_guardian_cannot_submit_for_unlinked_student(self):
+        self.client.login(username="guardian_a", password="pw12345!")
+        response = self.client.post(
+            reverse("core:homework_submit", args=[self.homework.pk, self.unrelated_child.pk]),
+            {"file": self._upload(), "note": ""},
+        )
+        self.assertEqual(response.status_code, 404)
+        self.assertFalse(
+            HomeworkSubmission.objects.filter(
+                homework=self.homework, student=self.unrelated_child
+            ).exists()
+        )
+
+    def test_guardian_cannot_submit_when_homework_does_not_accept_submissions(self):
+        self.client.login(username="guardian_a", password="pw12345!")
+        response = self.client.post(
+            reverse("core:homework_submit", args=[self.closed_homework.pk, self.my_child.pk]),
+            {"file": self._upload(), "note": ""},
+        )
+        self.assertEqual(response.status_code, 404)
+
+    def test_other_guardian_cannot_submit_for_someone_elses_child(self):
+        # guardian_z is a real guardian account at this school, just not
+        # linked to my_child — a valid guardian login isn't enough, the
+        # link has to be to *this* student.
+        self.client.login(username="guardian_z", password="pw12345!")
+        response = self.client.post(
+            reverse("core:homework_submit", args=[self.homework.pk, self.my_child.pk]),
+            {"file": self._upload(), "note": ""},
+        )
+        self.assertEqual(response.status_code, 404)
+        self.assertFalse(
+            HomeworkSubmission.objects.filter(homework=self.homework, student=self.my_child).exists()
+        )
+
+    def test_guardian_list_only_shows_own_childs_submission(self):
+        HomeworkSubmission.objects.create(
+            homework=self.homework,
+            student=self.unrelated_child,
+            file=self._upload("other.jpg"),
+            submitted_at=timezone.now(),
+            status=HomeworkSubmission.Status.SUBMITTED,
+        )
+        self.client.login(username="guardian_a", password="pw12345!")
+        response = self.client.get(reverse("core:homework"))
+        homework_items = list(response.context["homework_items"])
+        rows = next(h for h in homework_items if h.pk == self.homework.pk).my_submission_rows
+        student_ids = {row["student"].id for row in rows}
+        self.assertEqual(student_ids, {self.my_child.id})
+
+    def test_replace_before_due_date(self):
+        HomeworkSubmission.objects.create(
+            homework=self.homework,
+            student=self.my_child,
+            file=self._upload("first.jpg"),
+            submitted_at=timezone.now(),
+            status=HomeworkSubmission.Status.SUBMITTED,
+        )
+        self.client.login(username="guardian_a", password="pw12345!")
+        response = self.client.post(
+            reverse("core:homework_submit", args=[self.homework.pk, self.my_child.pk]),
+            {"file": self._upload("second.jpg"), "note": "Better version"},
+        )
+        self.assertRedirects(response, reverse("core:homework"))
+        submission = HomeworkSubmission.objects.get(homework=self.homework, student=self.my_child)
+        self.assertEqual(submission.note, "Better version")
+        self.assertIn("second", submission.file.name)
+
+    def test_cannot_replace_after_due_date_passed(self):
+        HomeworkSubmission.objects.create(
+            homework=self.homework,
+            student=self.my_child,
+            file=self._upload("first.jpg"),
+            submitted_at=timezone.now(),
+            status=HomeworkSubmission.Status.SUBMITTED,
+        )
+        self.homework.due_date = date(2020, 1, 1)
+        self.homework.save(update_fields=["due_date"])
+        self.client.login(username="guardian_a", password="pw12345!")
+        response = self.client.post(
+            reverse("core:homework_submit", args=[self.homework.pk, self.my_child.pk]),
+            {"file": self._upload("second.jpg"), "note": ""},
+        )
+        self.assertRedirects(response, reverse("core:homework"))
+        submission = HomeworkSubmission.objects.get(homework=self.homework, student=self.my_child)
+        # Still the original file — the replace attempt was rejected.
+        self.assertIn("first", submission.file.name)
+
+    def test_first_submission_after_due_date_is_accepted_and_marked_late(self):
+        self.homework.due_date = date(2020, 1, 1)
+        self.homework.save(update_fields=["due_date"])
+        self.client.login(username="guardian_a", password="pw12345!")
+        response = self.client.post(
+            reverse("core:homework_submit", args=[self.homework.pk, self.my_child.pk]),
+            {"file": self._upload(), "note": ""},
+        )
+        self.assertRedirects(response, reverse("core:homework"))
+        submission = HomeworkSubmission.objects.get(homework=self.homework, student=self.my_child)
+        self.assertEqual(submission.status, HomeworkSubmission.Status.LATE)
+
+    def test_any_linked_guardian_can_see_and_replace_current_state(self):
+        # Multi-guardian household: a second guardian linked to the same
+        # child sees the first guardian's submission and can replace it.
+        second_guardian = User.objects.create_user(username="guardian_b", password="pw12345!")
+        SchoolMembership.objects.create(
+            user=second_guardian, school=self.school_a, role=SchoolMembership.Role.GUARDIAN
+        )
+        GuardianLink.objects.create(guardian=second_guardian, student=self.my_child)
+
+        HomeworkSubmission.objects.create(
+            homework=self.homework,
+            student=self.my_child,
+            file=self._upload("mom.jpg"),
+            submitted_at=timezone.now(),
+            status=HomeworkSubmission.Status.SUBMITTED,
+            submitted_by=self.guardian,
+        )
+
+        self.client.login(username="guardian_b", password="pw12345!")
+        list_response = self.client.get(reverse("core:homework"))
+        rows = next(
+            h for h in list_response.context["homework_items"] if h.pk == self.homework.pk
+        ).my_submission_rows
+        self.assertEqual(rows[0]["status"], "submitted")
+
+        submit_response = self.client.post(
+            reverse("core:homework_submit", args=[self.homework.pk, self.my_child.pk]),
+            {"file": self._upload("dad.jpg"), "note": ""},
+        )
+        self.assertRedirects(submit_response, reverse("core:homework"))
+        submission = HomeworkSubmission.objects.get(homework=self.homework, student=self.my_child)
+        self.assertEqual(submission.submitted_by, second_guardian)
+        self.assertIn("dad", submission.file.name)
+
+    def test_rejects_disallowed_file_extension(self):
+        self.client.login(username="guardian_a", password="pw12345!")
+        response = self.client.post(
+            reverse("core:homework_submit", args=[self.homework.pk, self.my_child.pk]),
+            {
+                "file": SimpleUploadedFile(
+                    "virus.exe", b"nope", content_type="application/octet-stream"
+                ),
+                "note": "",
+            },
+        )
+        self.assertRedirects(response, reverse("core:homework"))
+        self.assertFalse(
+            HomeworkSubmission.objects.filter(homework=self.homework, student=self.my_child).exists()
+        )
+
+    def test_rejects_oversized_file(self):
+        self.client.login(username="guardian_a", password="pw12345!")
+        big_content = b"a" * (10 * 1024 * 1024 + 1)
+        response = self.client.post(
+            reverse("core:homework_submit", args=[self.homework.pk, self.my_child.pk]),
+            {"file": self._upload("big.jpg", big_content), "note": ""},
+        )
+        self.assertRedirects(response, reverse("core:homework"))
+        self.assertFalse(
+            HomeworkSubmission.objects.filter(homework=self.homework, student=self.my_child).exists()
+        )

@@ -13,6 +13,7 @@ from .forms import (
     GuardianForm,
     GuardianLinkForm,
     HomeworkForm,
+    HomeworkSubmissionForm,
     PermissionSlipForm,
     SchoolClassForm,
     SchoolForm,
@@ -28,6 +29,7 @@ from .models import (
     FeeNotice,
     GuardianLink,
     Homework,
+    HomeworkSubmission,
     PermissionSlip,
     PermissionSlipResponse,
     School,
@@ -392,12 +394,69 @@ def homework_list(request):
 
 
 def _guardian_homework(request):
+    """
+    Same base list _relevant_class_ids_for_guardian always built, plus
+    (new, for submissions) one submission row per (homework, own child)
+    pair for any homework that accepts submissions — flattened onto each
+    homework item as `.my_submission_rows` rather than fanning the whole
+    list out per-child, since most homework display (title/description/
+    due date) is still per-class, not per-child; only the upload/status
+    section underneath needs to repeat once per one of this guardian's
+    own children in that class (handles the sibling-in-same-class case,
+    where each child needs their own file).
+
+    Query-layer scoping, not just template hiding: submissions and
+    my_children_by_class are both built strictly from this guardian's
+    own GuardianLink rows, so nothing here can surface another family's
+    child or submission even for a class this guardian legitimately has
+    a kid in.
+    """
     class_ids = _relevant_class_ids_for_guardian(request)
-    homework_items = (
+    homework_items = list(
         Homework.objects.filter(school_class_id__in=class_ids)
         .select_related("school_class")
         .order_by("-created_at")
     )
+
+    my_children_by_class = {}
+    for link in request.user.guardian_links.filter(student__school=request.school).select_related(
+        "student"
+    ):
+        my_children_by_class.setdefault(link.student.school_class_id, []).append(link.student)
+
+    all_my_children_ids = [
+        student.id for students in my_children_by_class.values() for student in students
+    ]
+    submissions_by_key = {
+        (s.homework_id, s.student_id): s
+        for s in HomeworkSubmission.objects.filter(
+            homework__in=homework_items, student_id__in=all_my_children_ids
+        )
+    }
+
+    today = timezone.localdate()
+    for homework in homework_items:
+        homework.my_submission_rows = []
+        if not homework.accepts_submissions:
+            continue
+        for student in my_children_by_class.get(homework.school_class_id, []):
+            submission = submissions_by_key.get((homework.id, student.id))
+            past_due = bool(homework.due_date and today > homework.due_date)
+            if submission:
+                status = submission.status
+                can_replace = not past_due
+            else:
+                status = "missing" if past_due else "not_submitted"
+                can_replace = True  # a first submission is always allowed, even late
+            homework.my_submission_rows.append(
+                {
+                    "student": student,
+                    "submission": submission,
+                    "status": status,
+                    "can_replace": can_replace,
+                }
+            )
+
     return render(
         request, "core/guardian_homework.html", {"homework_items": homework_items}
     )
@@ -441,6 +500,56 @@ def _get_homework_or_404(request, pk):
 
 @login_required
 @role_required(SchoolMembership.Role.ADMIN, SchoolMembership.Role.TEACHER)
+def homework_detail(request, pk):
+    """
+    Per-student submission roster for one homework item — the teacher/
+    admin-facing counterpart to permission_slip_detail, built the same
+    way: one row per active student currently in the class, scoped via
+    _get_homework_or_404 the same as homework_edit/homework_delete so
+    this can't be reached for another school's homework by guessing an
+    id.
+
+    submitted/late/missing is derived here, not stored anywhere as a
+    manual "missing" state: a student with no HomeworkSubmission row is
+    "missing" once the due date has passed, or simply "not yet submitted"
+    before it — HomeworkSubmission.status itself only ever distinguishes
+    submitted from late, since both of those already imply a row exists
+    (see the model's docstring).
+
+    Renders even when accepts_submissions is off — the roster section
+    just won't mean much until a teacher turns it on for this item — so
+    this page is a safe, permanent detail URL for a homework item rather
+    than one that only exists conditionally.
+    """
+    homework = _get_homework_or_404(request, pk)
+    students = Student.objects.filter(
+        school_class=homework.school_class, is_active=True
+    ).order_by("last_name", "first_name")
+    submissions_by_student = {
+        s.student_id: s
+        for s in HomeworkSubmission.objects.filter(homework=homework).select_related(
+            "submitted_by"
+        )
+    }
+    today = timezone.localdate()
+    roster = []
+    for student in students:
+        submission = submissions_by_student.get(student.id)
+        if submission:
+            status = submission.status
+        elif homework.due_date and today > homework.due_date:
+            status = "missing"
+        else:
+            status = "not_submitted"
+        roster.append({"student": student, "submission": submission, "status": status})
+
+    return render(
+        request, "core/homework_detail.html", {"homework": homework, "roster": roster}
+    )
+
+
+@login_required
+@role_required(SchoolMembership.Role.ADMIN, SchoolMembership.Role.TEACHER)
 def homework_edit(request, pk):
     homework = _get_homework_or_404(request, pk)
 
@@ -473,6 +582,82 @@ def homework_delete(request, pk):
     title = homework.title
     homework.delete()
     messages.success(request, f"“{title}” deleted.")
+    return redirect("core:homework")
+
+
+@login_required
+@role_required(SchoolMembership.Role.GUARDIAN)
+@require_POST
+def homework_submit(request, pk, student_pk):
+    """
+    Records (or replaces) a guardian's submission for one of their own
+    linked children against one homework item. Re-verifies both the
+    homework's accepts_submissions flag and the GuardianLink fresh from
+    the database, rather than trusting that a (pk, student_pk) pair in
+    the URL is one this guardian was actually shown — same reasoning as
+    permission_slip_respond: a guardian shouldn't be able to submit on
+    behalf of an unrelated student, or against a homework item that
+    doesn't accept submissions, by guessing ids in a POST.
+
+    Any guardian linked to the student can submit or replace (multi-
+    guardian household support — GuardianLink docstring), so this
+    doesn't check that request.user is *the* guardian on any existing
+    HomeworkSubmission row, only that they're *a* guardian of this
+    student.
+
+    Replacing an existing submission is blocked once the due date has
+    passed — "can replace it any time before the due date passes" — but
+    a first-ever submission is always accepted, even late, since real
+    households run late and a late submission is still meant to be
+    accepted and flagged, not turned away.
+    """
+    homework = get_object_or_404(
+        Homework.objects.filter(
+            school_class__school=request.school, accepts_submissions=True
+        ),
+        pk=pk,
+    )
+    if not GuardianLink.objects.filter(guardian=request.user, student_id=student_pk).exists():
+        raise Http404
+
+    existing = HomeworkSubmission.objects.filter(
+        homework=homework, student_id=student_pk
+    ).first()
+    today = timezone.localdate()
+    past_due = bool(homework.due_date and today > homework.due_date)
+    if existing and past_due:
+        messages.error(
+            request,
+            "The due date has passed, so this submission can no longer be replaced.",
+        )
+        return redirect("core:homework")
+
+    old_file = existing.file if existing else None
+    form = HomeworkSubmissionForm(request.POST, request.FILES, instance=existing)
+    if not form.is_valid():
+        error_text = " ".join(
+            " ".join(errs) for errs in form.errors.values()
+        ) or "Couldn't save that submission — check the file and try again."
+        messages.error(request, error_text)
+        return redirect("core:homework")
+
+    submission = form.save(commit=False)
+    submission.homework = homework
+    submission.student_id = student_pk
+    submission.submitted_by = request.user
+    submission.submitted_at = timezone.now()
+    submission.status = (
+        HomeworkSubmission.Status.LATE if past_due else HomeworkSubmission.Status.SUBMITTED
+    )
+    submission.save()
+
+    # Clean up the previous file on disk on a replace, rather than
+    # leaving it orphaned in storage — schools may be self-hosting on
+    # modest hardware (technical considerations: conservative defaults).
+    if old_file and old_file.name != submission.file.name:
+        old_file.delete(save=False)
+
+    messages.success(request, "Submission received.")
     return redirect("core:homework")
 
 

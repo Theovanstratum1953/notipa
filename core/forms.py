@@ -7,6 +7,7 @@ from .models import (
     FeeNotice,
     GuardianLink,
     Homework,
+    HomeworkSubmission,
     PermissionSlip,
     School,
     SchoolClass,
@@ -723,7 +724,14 @@ class HomeworkForm(forms.ModelForm):
 
     class Meta:
         model = Homework
-        fields = ["school_class", "title", "description", "due_date", "attachment"]
+        fields = [
+            "school_class",
+            "title",
+            "description",
+            "due_date",
+            "attachment",
+            "accepts_submissions",
+        ]
         widgets = {
             "school_class": forms.Select(attrs={"class": "select"}),
             "title": forms.TextInput(attrs={"class": "input"}),
@@ -739,6 +747,7 @@ class HomeworkForm(forms.ModelForm):
         self.fields["description"].required = False
         self.fields["due_date"].required = False
         self.fields["attachment"].required = False
+        self.fields["accepts_submissions"].required = False
 
 
 class FeeNoticeForm(forms.ModelForm):
@@ -838,3 +847,36 @@ class PermissionSlipForm(forms.ModelForm):
         self.fields["description"].required = False
         self.fields["event_date"].required = False
         self.fields["response_deadline"].required = False
+
+
+class HomeworkSubmissionForm(forms.ModelForm):
+    """
+    A guardian attaching (or replacing) a file against one Homework item
+    for one of their own linked students — homework submission's
+    equivalent of PermissionSlipForm's response counterpart. `homework`
+    and `student` are set by the view, never taken from POST data (see
+    core.views.homework_submit), same pattern as every other
+    school-scoped form here: the view has already re-verified the
+    guardian-student link and the homework's accepts_submissions flag
+    before this form is ever built.
+
+    `file` is required on every save, including a replace — there's no
+    "keep the old file, just edit the note" path, since a submission is
+    defined as having a file (the model field itself isn't nullable).
+    Size and type limits (image or PDF, size-capped) live as validators
+    on HomeworkSubmission.file itself, so they run here automatically
+    rather than needing to be duplicated on the form.
+    """
+
+    class Meta:
+        model = HomeworkSubmission
+        fields = ["file", "note"]
+        widgets = {
+            "note": forms.Textarea(
+                attrs={"class": "input", "rows": 2, "placeholder": "Optional note"}
+            ),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["note"].required = False

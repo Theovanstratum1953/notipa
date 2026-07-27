@@ -45,6 +45,11 @@
         {% endif %}
       </div>
     </div>
+    <div class="field" style="display:flex; align-items:center; gap:8px;">
+      {{ form.accepts_submissions }}
+      <label class="field__label" for="{{ form.accepts_submissions.id_for_label }}" style="margin:0;">Accepts submissions</label>
+    </div>
+    <p class="field__hint">If on, guardians get an upload control on this homework and you get a submitted/late/missing roster for the class.</p>
     <div style="display:flex; gap:10px; margin-top: 22px;">
       <button type="submit" class="btn btn--primary">{% if homework %}Save Changes{% else %}Post Homework{% endif %}</button>
       <a href="{% url 'core:homework' %}" class="btn btn--secondary">Cancel</a>

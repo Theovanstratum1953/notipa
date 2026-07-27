@@ -27,6 +27,7 @@
         <th>Class</th>
         <th>Due</th>
         <th>Attachment</th>
+        <th>Submissions</th>
         <th>Posted</th>
         <th></th>
       </tr>
@@ -34,7 +35,7 @@
     <tbody>
       {% for h in homework_items %}
       <tr>
-        <td class="cell--title">{{ h.title }}</td>
+        <td class="cell--title"><a href="{% url 'core:homework_detail' h.pk %}">{{ h.title }}</a></td>
         <td><a href="{% url 'core:class_detail' h.school_class.pk %}">{{ h.school_class.name }}</a></td>
         <td>
           {% if h.due_date %}
@@ -50,8 +51,16 @@
             <span class="text-dim">—</span>
           {% endif %}
         </td>
+        <td>
+          {% if h.accepts_submissions %}
+            <span class="tag tag--active"><span class="tag__eyelet"></span>On</span>
+          {% else %}
+            <span class="tag tag--neutral"><span class="tag__eyelet"></span>Off</span>
+          {% endif %}
+        </td>
         <td>{{ h.created_at|date:"M j, Y" }}</td>
         <td style="white-space: nowrap;">
+          <a href="{% url 'core:homework_detail' h.pk %}" class="btn btn--secondary btn--sm">View</a>
           <a href="{% url 'core:homework_edit' h.pk %}" class="btn btn--secondary btn--sm">Edit</a>
           <form method="post" action="{% url 'core:homework_delete' h.pk %}" style="display:inline;" onsubmit="return confirm('Delete “{{ h.title|escapejs }}”? This can\'t be undone.');">
             {% csrf_token %}
@@ -60,7 +69,7 @@
         </td>
       </tr>
       {% empty %}
-      <tr><td colspan="6"><div class="empty-list">No homework posted yet.</div></td></tr>
+      <tr><td colspan="7"><div class="empty-list">No homework posted yet.</div></td></tr>
       {% endfor %}
     </tbody>
   </table>

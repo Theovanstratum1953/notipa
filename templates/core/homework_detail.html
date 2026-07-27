@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+
+{% block title %}{{ homework.title }} — Notipa{% endblock %}
+
+{% block breadcrumb %}
+  <a href="{% url 'core:homework' %}">Homework</a><span class="topbar__breadcrumb-sep">/</span><span class="topbar__breadcrumb-current">{{ homework.title }}</span>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <span class="page-header__eyebrow">Communication</span>
+    <h1>{{ homework.title }}</h1>
+    <p class="page-header__sub">
+      <a href="{% url 'core:class_detail' homework.school_class.pk %}">{{ homework.school_class.name }}</a>
+      {% if homework.due_date %} · Due {{ homework.due_date|date:"M j, Y" }}{% else %} · No due date{% endif %}
+      {% if homework.accepts_submissions %}
+        · <span class="tag tag--active"><span class="tag__eyelet"></span>Accepting submissions</span>
+      {% else %}
+        · <span class="tag tag--neutral"><span class="tag__eyelet"></span>Not accepting submissions</span>
+      {% endif %}
+    </p>
+  </div>
+  <a href="{% url 'core:homework_edit' homework.pk %}" class="btn btn--secondary">
+    Edit
+  </a>
+</div>
+
+{% if homework.description or homework.attachment %}
+<div class="card card--pad-lg" style="max-width: 640px; margin-bottom: 20px;">
+  {% if homework.description %}<p style="margin:0;">{{ homework.description|linebreaksbr }}</p>{% endif %}
+  {% if homework.attachment %}
+    <p style="margin:{% if homework.description %}12px{% else %}0{% endif %} 0 0;">
+      <a href="{{ homework.attachment.url }}" target="_blank" rel="noopener">Download attachment</a>
+    </p>
+  {% endif %}
+</div>
+{% endif %}
+
+{% if not homework.accepts_submissions %}
+<div class="card card--pad-lg" style="max-width: 640px; margin-bottom: 20px;">
+  <p style="margin:0;">Submissions are off for this homework item. Turn on “Accepts submissions” on the edit page to start collecting files from guardians and see a per-student roster here.</p>
+</div>
+{% endif %}
+
+<div class="table-wrap">
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>Student</th>
+        <th>Status</th>
+        <th>Submitted By</th>
+        <th>Submitted</th>
+        <th>Note</th>
+        <th>File</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in roster %}
+      <tr>
+        <td class="cell--title"><a href="{% url 'core:student_detail' row.student.pk %}">{{ row.student.first_name }} {{ row.student.last_name }}</a></td>
+        <td>
+          {% if row.status == "submitted" %}
+            <span class="tag tag--active"><span class="tag__eyelet"></span>Submitted</span>
+          {% elif row.status == "late" %}
+            <span class="tag tag--critical"><span class="tag__eyelet"></span>Late</span>
+          {% elif row.status == "missing" %}
+            <span class="tag tag--critical"><span class="tag__eyelet"></span>Missing</span>
+          {% else %}
+            <span class="tag tag--neutral"><span class="tag__eyelet"></span>Not yet submitted</span>
+          {% endif %}
+        </td>
+        <td>
+          {% if row.submission.submitted_by %}
+            {{ row.submission.submitted_by.get_full_name|default:row.submission.submitted_by.username }}
+          {% else %}
+            <span class="text-dim">—</span>
+          {% endif %}
+        </td>
+        <td>
+          {% if row.submission %}{{ row.submission.submitted_at|date:"M j, Y, g:i a" }}{% else %}<span class="text-dim">—</span>{% endif %}
+        </td>
+        <td>{{ row.submission.note|default:"—" }}</td>
+        <td>
+          {% if row.submission %}
+            <a href="{{ row.submission.file.url }}" target="_blank" rel="noopener">Download</a>
+          {% else %}
+            <span class="text-dim">—</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="6"><div class="empty-list">No active students in this class yet.</div></td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

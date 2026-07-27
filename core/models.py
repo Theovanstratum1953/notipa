@@ -20,12 +20,45 @@ Queryset-level scoping (a teacher at School A cannot query School B's
 data) is enforced in views/managers built on top of these models, not
 here — this file is the schema those permission checks rely on.
 """
+import os
 import uuid
 
 from django.conf import settings
 from django.contrib.auth.models import AbstractUser
+from django.core.exceptions import ValidationError
 from django.core.validators import MinValueValidator, MaxValueValidator
 from django.db import models
+
+
+MAX_ATTACHMENT_SIZE_BYTES = 10 * 1024 * 1024  # 10 MB
+
+# Extensions a guardian's homework submission can be — deliberately
+# narrower than teacher-side Homework.attachment (which stays
+# unrestricted, since a teacher might post a worksheet in any format).
+# Guardians are a less-trusted upload path and the pilot only ever
+# needs "a photo of the completed page" or "a scanned PDF" (proposal's
+# "conservative defaults" note, since schools may be self-hosting on
+# modest hardware/bandwidth).
+SUBMISSION_ALLOWED_EXTENSIONS = [".jpg", ".jpeg", ".png", ".heic", ".heif", ".pdf"]
+
+
+def validate_attachment_size(value):
+    """Shared size cap for homework attachments and submissions — one
+    file pipeline, one limit, rather than a second set of rules for the
+    guardian-facing upload."""
+    if value.size > MAX_ATTACHMENT_SIZE_BYTES:
+        raise ValidationError(
+            f"File is too large ({value.size / (1024 * 1024):.1f} MB). "
+            f"The limit is {MAX_ATTACHMENT_SIZE_BYTES // (1024 * 1024)} MB."
+        )
+
+
+def validate_submission_extension(value):
+    ext = os.path.splitext(value.name)[1].lower()
+    if ext not in SUBMISSION_ALLOWED_EXTENSIONS:
+        raise ValidationError(
+            f"Unsupported file type “{ext or 'unknown'}”. Upload an image or a PDF."
+        )
 
 
 class UUIDModel(models.Model):
@@ -336,7 +369,22 @@ class Homework(UUIDModel):
     title = models.CharField(max_length=255)
     description = models.TextField(blank=True)
     due_date = models.DateField(null=True, blank=True)
-    attachment = models.FileField(upload_to="homework/%Y/%m/", blank=True, null=True)
+    attachment = models.FileField(
+        upload_to="homework/%Y/%m/",
+        blank=True,
+        null=True,
+        validators=[validate_attachment_size],
+    )
+    accepts_submissions = models.BooleanField(
+        default=False,
+        help_text=(
+            "If on, guardians can attach a file against this homework and "
+            "this item's detail page shows a submitted/late/missing roster "
+            "for the class, the same way permission-slip responses do. "
+            "Off by default — existing homework is unaffected until a "
+            "teacher opts in."
+        ),
+    )
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
@@ -351,6 +399,77 @@ class Homework(UUIDModel):
 
     def __str__(self):
         return f"{self.title} — {self.school_class}"
+
+
+class HomeworkSubmission(UUIDModel):
+    """
+    A guardian's (or, later, a student's) response to one Homework item
+    for one Student — the read side of the homework loop, closing what
+    was previously one-directional (teacher posts, nobody can send
+    anything back). Deliberately small: a file, a note, when it arrived,
+    and a status — no rubric, no grade, no plagiarism check (out of
+    scope; Notipa stays a communication tool, not a gradebook).
+
+    One row per (homework, student) — a resubmission replaces this row
+    in place (new file, new submitted_at, status recomputed) rather than
+    accumulating a history of attempts, mirroring how
+    PermissionSlipResponse holds one current answer per student rather
+    than a log of every time a guardian changed their mind.
+
+    There is deliberately no "missing" value in Status: a student with
+    no submission simply has no HomeworkSubmission row at all, and
+    "missing" (vs. "not yet due") is computed by the view layer from
+    homework.due_date the same way a permission slip's implicit
+    "pending" bucket is derived rather than a real ID in some other
+    table. Status here only ever needs to distinguish submitted
+    (on/before the due date) from late (after it) — both mean "we have
+    a file," so there's no manual bookkeeping: it's set once, from
+    due_date vs. submitted_at, whenever a submission is created or
+    replaced.
+    """
+
+    class Status(models.TextChoices):
+        SUBMITTED = "submitted", "Submitted"
+        LATE = "late", "Late"
+
+    homework = models.ForeignKey(
+        Homework, on_delete=models.CASCADE, related_name="submissions"
+    )
+    student = models.ForeignKey(
+        Student, on_delete=models.CASCADE, related_name="homework_submissions"
+    )
+    file = models.FileField(
+        upload_to="homework_submissions/%Y/%m/",
+        validators=[validate_attachment_size, validate_submission_extension],
+    )
+    note = models.TextField(blank=True)
+    submitted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="homework_submissions_made",
+        help_text=(
+            "Which linked guardian actually submitted/replaced this. Any "
+            "guardian linked to the student can submit or replace — same "
+            "multi-guardian-household support GuardianLink provides "
+            "elsewhere — so this is informational for the teacher roster, "
+            "not an access restriction."
+        ),
+    )
+    submitted_at = models.DateTimeField()
+    status = models.CharField(max_length=10, choices=Status.choices)
+
+    class Meta:
+        ordering = ["-submitted_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["homework", "student"], name="unique_submission_per_student"
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.student} — {self.homework} ({self.get_status_display()})"
 
 
 class FeeNotice(UUIDModel):
