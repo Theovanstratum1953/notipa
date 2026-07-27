@@ -1760,6 +1760,16 @@ class SchoolSettingsTests(TestCase):
         self.assertEqual(self.school_b.name, "School B Renamed")
         self.assertEqual(self.school_a.name, "School A")
 
+    @override_settings(APP_VERSION="9.9.9-test")
+    def test_settings_page_shows_app_version(self):
+        # override_settings rather than depending on the real VERSION
+        # file's contents, so this test doesn't need updating every
+        # time the app is actually released.
+        self.client.login(username="admin_a", password="pw12345!")
+        response = self.client.get(reverse("core:settings"))
+        self.assertEqual(response.context["app_version"], "9.9.9-test")
+        self.assertContains(response, "9.9.9-test")
+
 
 class FeeNoticeCRUDTests(TestCase):
     """

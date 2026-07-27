@@ -1,3 +1,4 @@
+from django.conf import settings as django_settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.db.models import Count, Q
@@ -1190,7 +1191,11 @@ def school_settings(request):
     else:
         form = SchoolSettingsForm(instance=request.school)
 
-    return render(request, "core/settings.html", {"form": form, "school": request.school})
+    return render(
+        request,
+        "core/settings.html",
+        {"form": form, "school": request.school, "app_version": django_settings.APP_VERSION},
+    )
 
 
 # ---------------------------------------------------------------------

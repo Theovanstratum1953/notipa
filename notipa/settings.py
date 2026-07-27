@@ -213,3 +213,18 @@ MEDIA_ROOT = BASE_DIR / 'media'
 # https://docs.djangoproject.com/en/6.0/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+
+# App version — a plain VERSION file at the repo root rather than a
+# database value or a package/__version__ constant, so it survives a
+# fresh `docker compose build` without a migration and is trivial for a
+# self-hosted school (or us, for the pilot) to check by eye in the repo
+# without needing the app running at all. Bumped by hand on each
+# release; read once here at process start, not on every request, so a
+# new value only ever takes effect via an actual redeploy (the same
+# moment the rest of the code changes) rather than mid-process.
+VERSION_FILE = BASE_DIR / 'VERSION'
+try:
+    APP_VERSION = VERSION_FILE.read_text().strip()
+except FileNotFoundError:
+    APP_VERSION = 'unknown'
