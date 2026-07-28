@@ -17,6 +17,8 @@ from .models import (
     GuardianLink,
     Homework,
     HomeworkSubmission,
+    Message,
+    MessageThread,
     PermissionSlip,
     PermissionSlipResponse,
     School,
@@ -3058,3 +3060,259 @@ class SchoolCalendarEventTests(TestCase):
         # storage inserts a content hash before the extension in
         # production-like test runs (e.g. calendar-warnings.abcd1234.js).
         self.assertContains(response, "calendar-warnings")
+
+
+class MessagingTests(TestCase):
+    """
+    Covers the Guardian ↔ Teacher Messaging feature: School.
+    messaging_enabled, core.models.MessageThread/Message, and
+    core.views.messages_inbox/message_thread_start/
+    message_thread_detail. The central permission boundary: a thread
+    can only be created between a guardian actually linked to a student
+    (GuardianLink) and a teacher actually teaching that student's class
+    (homeroom or co-teacher) — never an open directory of arbitrary
+    staff — and the whole feature is off by default per school.
+    """
+
+    def setUp(self):
+        self.school_a = School.objects.create(
+            name="School A", country="PH", messaging_enabled=True
+        )
+        self.school_b = School.objects.create(
+            name="School B", country="PH", messaging_enabled=True
+        )
+
+        self.admin_a = User.objects.create_user(username="admin_a", password="pw12345!")
+        SchoolMembership.objects.create(
+            user=self.admin_a, school=self.school_a, role=SchoolMembership.Role.ADMIN
+        )
+
+        self.teacher_user = User.objects.create_user(username="teacher_a", password="pw12345!")
+        self.teacher_membership = SchoolMembership.objects.create(
+            user=self.teacher_user, school=self.school_a, role=SchoolMembership.Role.TEACHER
+        )
+        self.other_teacher_user = User.objects.create_user(
+            username="teacher_other", password="pw12345!"
+        )
+        SchoolMembership.objects.create(
+            user=self.other_teacher_user, school=self.school_a, role=SchoolMembership.Role.TEACHER
+        )
+
+        self.guardian_user = User.objects.create_user(username="guardian_a", password="pw12345!")
+        SchoolMembership.objects.create(
+            user=self.guardian_user, school=self.school_a, role=SchoolMembership.Role.GUARDIAN
+        )
+        self.unrelated_guardian = User.objects.create_user(
+            username="guardian_z", password="pw12345!"
+        )
+        SchoolMembership.objects.create(
+            user=self.unrelated_guardian, school=self.school_a, role=SchoolMembership.Role.GUARDIAN
+        )
+
+        self.class_a = SchoolClass.objects.create(
+            school=self.school_a,
+            name="Grade 4 - Sampaguita",
+            academic_year="2026-2027",
+            homeroom_teacher=self.teacher_membership,
+        )
+        self.student = Student.objects.create(
+            school=self.school_a, school_class=self.class_a, first_name="Ana", last_name="Reyes"
+        )
+        GuardianLink.objects.create(guardian=self.guardian_user, student=self.student)
+
+    def test_messaging_disabled_by_default(self):
+        school = School.objects.create(name="Fresh school", country="PH")
+        self.assertFalse(school.messaging_enabled)
+
+    def test_inbox_blocked_when_messaging_disabled(self):
+        self.school_a.messaging_enabled = False
+        self.school_a.save(update_fields=["messaging_enabled"])
+        self.client.login(username="guardian_a", password="pw12345!")
+        response = self.client.get(reverse("core:messages"))
+        self.assertRedirects(response, reverse("core:dashboard"))
+
+    def test_thread_start_blocked_when_messaging_disabled(self):
+        self.school_a.messaging_enabled = False
+        self.school_a.save(update_fields=["messaging_enabled"])
+        self.client.login(username="guardian_a", password="pw12345!")
+        response = self.client.get(
+            reverse("core:message_thread_start", args=[self.student.pk, self.teacher_user.pk])
+        )
+        self.assertEqual(response.status_code, 404)
+
+    def test_guardian_can_start_thread_with_connected_teacher(self):
+        self.client.login(username="guardian_a", password="pw12345!")
+        response = self.client.get(
+            reverse("core:message_thread_start", args=[self.student.pk, self.teacher_user.pk])
+        )
+        thread = MessageThread.objects.get(
+            guardian=self.guardian_user, teacher=self.teacher_user, student=self.student
+        )
+        self.assertRedirects(response, reverse("core:message_thread_detail", args=[thread.pk]))
+
+    def test_guardian_cannot_start_thread_with_unconnected_teacher(self):
+        self.client.login(username="guardian_a", password="pw12345!")
+        response = self.client.get(
+            reverse(
+                "core:message_thread_start", args=[self.student.pk, self.other_teacher_user.pk]
+            )
+        )
+        self.assertEqual(response.status_code, 404)
+        self.assertFalse(
+            MessageThread.objects.filter(
+                guardian=self.guardian_user, teacher=self.other_teacher_user
+            ).exists()
+        )
+
+    def test_unrelated_guardian_cannot_start_thread_about_someone_elses_child(self):
+        self.client.login(username="guardian_z", password="pw12345!")
+        response = self.client.get(
+            reverse("core:message_thread_start", args=[self.student.pk, self.teacher_user.pk])
+        )
+        self.assertEqual(response.status_code, 404)
+
+    def test_teacher_can_start_thread_with_connected_guardian(self):
+        self.client.login(username="teacher_a", password="pw12345!")
+        response = self.client.get(
+            reverse("core:message_thread_start", args=[self.student.pk, self.guardian_user.pk])
+        )
+        thread = MessageThread.objects.get(
+            guardian=self.guardian_user, teacher=self.teacher_user, student=self.student
+        )
+        self.assertRedirects(response, reverse("core:message_thread_detail", args=[thread.pk]))
+
+    def test_unconnected_teacher_cannot_start_thread(self):
+        self.client.login(username="teacher_other", password="pw12345!")
+        response = self.client.get(
+            reverse("core:message_thread_start", args=[self.student.pk, self.guardian_user.pk])
+        )
+        self.assertEqual(response.status_code, 404)
+
+    def test_thread_is_reused_not_duplicated(self):
+        self.client.login(username="guardian_a", password="pw12345!")
+        self.client.get(
+            reverse("core:message_thread_start", args=[self.student.pk, self.teacher_user.pk])
+        )
+        self.client.get(
+            reverse("core:message_thread_start", args=[self.student.pk, self.teacher_user.pk])
+        )
+        self.assertEqual(
+            MessageThread.objects.filter(
+                guardian=self.guardian_user, teacher=self.teacher_user, student=self.student
+            ).count(),
+            1,
+        )
+
+    def test_guardian_can_send_and_teacher_sees_it_and_it_gets_marked_read(self):
+        thread = MessageThread.objects.create(
+            school=self.school_a,
+            student=self.student,
+            guardian=self.guardian_user,
+            teacher=self.teacher_user,
+        )
+        self.client.login(username="guardian_a", password="pw12345!")
+        response = self.client.post(
+            reverse("core:message_thread_detail", args=[thread.pk]),
+            {"body": "Can she stay for lunch club today?"},
+        )
+        self.assertRedirects(response, reverse("core:message_thread_detail", args=[thread.pk]))
+        message = Message.objects.get(thread=thread)
+        self.assertEqual(message.sender, self.guardian_user)
+        self.assertEqual(message.body, "Can she stay for lunch club today?")
+        self.assertIsNone(message.read_at)
+        thread.refresh_from_db()
+        self.assertIsNotNone(thread.last_message_at)
+
+        self.client.logout()
+        self.client.login(username="teacher_a", password="pw12345!")
+        response = self.client.get(reverse("core:message_thread_detail", args=[thread.pk]))
+        self.assertContains(response, "Can she stay for lunch club today?")
+        message.refresh_from_db()
+        self.assertIsNotNone(message.read_at)
+
+    def test_own_message_not_marked_read_by_own_view(self):
+        thread = MessageThread.objects.create(
+            school=self.school_a,
+            student=self.student,
+            guardian=self.guardian_user,
+            teacher=self.teacher_user,
+        )
+        message = Message.objects.create(thread=thread, sender=self.guardian_user, body="Hi")
+        self.client.login(username="guardian_a", password="pw12345!")
+        self.client.get(reverse("core:message_thread_detail", args=[thread.pk]))
+        message.refresh_from_db()
+        self.assertIsNone(message.read_at)
+
+    def test_rejects_empty_message(self):
+        thread = MessageThread.objects.create(
+            school=self.school_a,
+            student=self.student,
+            guardian=self.guardian_user,
+            teacher=self.teacher_user,
+        )
+        self.client.login(username="guardian_a", password="pw12345!")
+        self.client.post(reverse("core:message_thread_detail", args=[thread.pk]), {"body": "   "})
+        self.assertFalse(Message.objects.filter(thread=thread).exists())
+
+    def test_teacher_cannot_view_another_teachers_thread(self):
+        thread = MessageThread.objects.create(
+            school=self.school_a,
+            student=self.student,
+            guardian=self.guardian_user,
+            teacher=self.teacher_user,
+        )
+        self.client.login(username="teacher_other", password="pw12345!")
+        response = self.client.get(reverse("core:message_thread_detail", args=[thread.pk]))
+        self.assertEqual(response.status_code, 404)
+
+    def test_guardian_cannot_view_another_guardians_thread(self):
+        thread = MessageThread.objects.create(
+            school=self.school_a,
+            student=self.student,
+            guardian=self.guardian_user,
+            teacher=self.teacher_user,
+        )
+        self.client.login(username="guardian_z", password="pw12345!")
+        response = self.client.get(reverse("core:message_thread_detail", args=[thread.pk]))
+        self.assertEqual(response.status_code, 404)
+
+    def test_inbox_shows_unread_count(self):
+        thread = MessageThread.objects.create(
+            school=self.school_a,
+            student=self.student,
+            guardian=self.guardian_user,
+            teacher=self.teacher_user,
+        )
+        Message.objects.create(thread=thread, sender=self.guardian_user, body="Hello")
+        Message.objects.create(thread=thread, sender=self.guardian_user, body="Are you there?")
+        self.client.login(username="teacher_a", password="pw12345!")
+        response = self.client.get(reverse("core:messages"))
+        threads = response.context["threads"]
+        self.assertEqual(threads[0].unread_count, 2)
+
+    def test_admin_cannot_start_or_view_threads(self):
+        self.client.login(username="admin_a", password="pw12345!")
+        response = self.client.get(
+            reverse("core:message_thread_start", args=[self.student.pk, self.guardian_user.pk])
+        )
+        self.assertEqual(response.status_code, 404)
+        response = self.client.get(reverse("core:messages"))
+        self.assertEqual(response.status_code, 403)
+
+    def test_settings_form_can_toggle_messaging_off(self):
+        self.client.login(username="admin_a", password="pw12345!")
+        response = self.client.post(
+            reverse("core:settings"),
+            {
+                "name": "School A",
+                "country": "PH",
+                "default_language": "en",
+                "timezone": "Asia/Manila",
+                "academic_year_start_month": 6,
+                # messaging_enabled deliberately omitted — an unchecked
+                # checkbox simply isn't present in POST data.
+            },
+        )
+        self.assertRedirects(response, reverse("core:settings"))
+        self.school_a.refresh_from_db()
+        self.assertFalse(self.school_a.messaging_enabled)

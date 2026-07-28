@@ -1,5 +1,6 @@
 from django.conf import settings as django_settings
 from django.contrib import messages
+from django.contrib.auth import get_user_model
 from django.contrib.auth.decorators import login_required
 from django.db.models import Count, Q
 from django.http import Http404, HttpResponseRedirect, JsonResponse
@@ -32,6 +33,8 @@ from .models import (
     GuardianLink,
     Homework,
     HomeworkSubmission,
+    Message,
+    MessageThread,
     PermissionSlip,
     PermissionSlipResponse,
     School,
@@ -41,6 +44,8 @@ from .models import (
     Student,
 )
 from .permissions import role_required, scope_to_school, superuser_required
+
+User = get_user_model()
 
 
 @login_required
@@ -152,6 +157,18 @@ def my_child_detail(request, pk):
         .select_related("permission_slip")
         .order_by("permission_slip__response_deadline", "-permission_slip__created_at")[:5]
     )
+    # Homeroom + co-teachers of this child's class — the people a
+    # "Message" button on this page is allowed to reach, per
+    # message_thread_start's own connection check. Empty (and the
+    # template hides the section entirely) if the school hasn't turned
+    # messaging on, or the child has no class assigned yet.
+    connected_teachers = []
+    if request.school.messaging_enabled and student.school_class_id:
+        connected_teachers = list(
+            User.objects.filter(id__in=_connected_teacher_ids_for_student(student)).order_by(
+                "last_name", "first_name"
+            )
+        )
     return render(
         request,
         "core/my_child_detail.html",
@@ -162,6 +179,7 @@ def my_child_detail(request, pk):
             "homework_items": homework_items,
             "fee_notices": fee_notices,
             "permission_slip_responses": permission_slip_responses,
+            "connected_teachers": connected_teachers,
         },
     )
 
@@ -1209,6 +1227,187 @@ def calendar_closed_days_json(request):
     )
 
 
+# ---------------------------------------------------------------------
+# Messaging — a private, one-to-one thread between a guardian and their
+# child's teacher, scoped to the shared student. Off by default per
+# school (School.messaging_enabled, set from Admin > Settings): every
+# view below re-checks that flag server-side rather than only hiding
+# the entry points in a template, the same "never just hidden in the
+# UI" posture the rest of this app's permission layer uses.
+#
+# A thread can only ever be started between a guardian actually linked
+# to a student (GuardianLink) and a teacher actually teaching that
+# student's class (SchoolClass.homeroom_teacher or additional_teachers)
+# — never an open directory of arbitrary staff. That connection is
+# re-verified fresh from the data on every thread-start attempt, not
+# trusted from whatever ids happen to be in the URL.
+# ---------------------------------------------------------------------
+
+def _connected_teacher_ids_for_student(student):
+    """User ids of every teacher (homeroom + co-teachers) actually
+    teaching this student's current class — the set a guardian is
+    allowed to start a message thread with about this student. Empty
+    if the student has no class assigned yet."""
+    if not student.school_class_id:
+        return set()
+    school_class = student.school_class
+    ids = set(school_class.additional_teachers.values_list("user_id", flat=True))
+    if school_class.homeroom_teacher_id:
+        ids.add(school_class.homeroom_teacher.user_id)
+    return ids
+
+
+def _connected_guardian_ids_for_student(student):
+    """User ids of every guardian actually linked to this student — the
+    set a teacher is allowed to start a message thread with about this
+    student."""
+    return set(student.guardian_links.values_list("guardian_id", flat=True))
+
+
+@login_required
+def messages_inbox(request):
+    """
+    Lists the requesting user's own message threads — guardian or
+    teacher, same template either way — ordered by most recent
+    activity, each annotated with the other participant and an unread
+    count. Neither role ever sees another person's threads: the
+    queryset is always filtered to guardian=request.user or
+    teacher=request.user, never "every thread at this school."
+    """
+    if request.school is None:
+        messages.error(request, "You need to be linked to a school to see messages.")
+        return redirect("core:dashboard")
+    if not request.school.messaging_enabled:
+        messages.error(request, "Messaging isn't turned on for this school yet.")
+        return redirect("core:dashboard")
+    if request.membership.role not in (
+        SchoolMembership.Role.GUARDIAN,
+        SchoolMembership.Role.TEACHER,
+    ):
+        return render(request, "core/no_access.html", status=403)
+
+    is_guardian = request.membership.role == SchoolMembership.Role.GUARDIAN
+    filter_kwargs = {"guardian": request.user} if is_guardian else {"teacher": request.user}
+    threads = list(
+        MessageThread.objects.filter(school=request.school, **filter_kwargs)
+        .select_related("student", "guardian", "teacher")
+        .prefetch_related("messages")
+        .order_by("-last_message_at", "-created_at")
+    )
+    for thread in threads:
+        thread.other_party = thread.teacher if is_guardian else thread.guardian
+        thread_messages = list(thread.messages.all())
+        thread.unread_count = sum(
+            1 for m in thread_messages if m.sender_id != request.user.id and m.read_at is None
+        )
+        thread.last_message = max(thread_messages, key=lambda m: m.sent_at, default=None)
+
+    return render(request, "core/messages_inbox.html", {"threads": threads})
+
+
+@login_required
+def message_thread_start(request, student_pk, other_user_pk):
+    """
+    Creates (or reuses) the thread between request.user and
+    other_user_pk about student_pk, then redirects into it. Re-verifies
+    the guardian-teacher-student connection fresh from GuardianLink/
+    SchoolClass every time — same "never trust an id from outside the
+    session/data relationships" posture as permission_slip_respond and
+    homework_submit — rather than trusting that a pair of ids in the
+    URL is one this user was actually shown a "Message" button for.
+    """
+    if request.school is None or not request.school.messaging_enabled:
+        raise Http404
+    if request.membership.role not in (
+        SchoolMembership.Role.GUARDIAN,
+        SchoolMembership.Role.TEACHER,
+    ):
+        raise Http404
+
+    student = get_object_or_404(Student.objects.filter(school=request.school), pk=student_pk)
+
+    if request.membership.role == SchoolMembership.Role.GUARDIAN:
+        guardian_id = request.user.id
+        teacher_id = other_user_pk
+        if guardian_id not in _connected_guardian_ids_for_student(student):
+            raise Http404
+        if teacher_id not in _connected_teacher_ids_for_student(student):
+            raise Http404
+    else:
+        teacher_id = request.user.id
+        guardian_id = other_user_pk
+        if teacher_id not in _connected_teacher_ids_for_student(student):
+            raise Http404
+        if guardian_id not in _connected_guardian_ids_for_student(student):
+            raise Http404
+
+    thread, _created = MessageThread.objects.get_or_create(
+        school=request.school,
+        student=student,
+        guardian_id=guardian_id,
+        teacher_id=teacher_id,
+    )
+    return redirect("core:message_thread_detail", pk=thread.pk)
+
+
+def _get_message_thread_or_404(request, pk):
+    if request.membership is None:
+        raise Http404
+    if request.membership.role == SchoolMembership.Role.GUARDIAN:
+        qs = MessageThread.objects.filter(school=request.school, guardian=request.user)
+    elif request.membership.role == SchoolMembership.Role.TEACHER:
+        qs = MessageThread.objects.filter(school=request.school, teacher=request.user)
+    else:
+        qs = MessageThread.objects.none()
+    return get_object_or_404(
+        qs.select_related("student", "guardian", "teacher"), pk=pk
+    )
+
+
+@login_required
+def message_thread_detail(request, pk):
+    """
+    Shows one thread's full message history plus a composer, and marks
+    any messages sent by the other participant as read the moment this
+    page is viewed — the read-receipt equivalent of AnnouncementRead,
+    just a single timestamp field rather than a through-model, since a
+    thread only ever has one possible "other reader" (see Message's
+    docstring).
+    """
+    if request.school is None or not request.school.messaging_enabled:
+        raise Http404
+    thread = _get_message_thread_or_404(request, pk)
+
+    if request.method == "POST":
+        body = request.POST.get("body", "").strip()
+        if not body:
+            messages.error(request, "Type a message before sending.")
+        else:
+            Message.objects.create(thread=thread, sender=request.user, body=body)
+            thread.last_message_at = timezone.now()
+            thread.save(update_fields=["last_message_at"])
+        return redirect("core:message_thread_detail", pk=thread.pk)
+
+    thread_messages = list(thread.messages.select_related("sender").order_by("sent_at"))
+    unread_ids = [
+        m.pk for m in thread_messages if m.sender_id != request.user.id and m.read_at is None
+    ]
+    if unread_ids:
+        now = timezone.now()
+        Message.objects.filter(pk__in=unread_ids).update(read_at=now)
+        for m in thread_messages:
+            if m.pk in unread_ids:
+                m.read_at = now
+
+    other_party = thread.teacher if thread.guardian_id == request.user.id else thread.guardian
+
+    return render(
+        request,
+        "core/message_thread_detail.html",
+        {"thread": thread, "thread_messages": thread_messages, "other_party": other_party},
+    )
+
+
 @login_required
 def wiki(request):
     """
@@ -1651,10 +1850,27 @@ def student_detail(request, pk):
         ),
     )
     form = GuardianLinkForm(student=student)
+    # Only offer a "Message" link to a teacher who's actually connected
+    # to this student (homeroom or co-teacher of their class) — a
+    # teacher browsing an unrelated student's page shouldn't see a
+    # button that 404s the moment they click it; message_thread_start
+    # re-checks this same connection server-side regardless.
+    can_message = bool(
+        request.school
+        and request.school.messaging_enabled
+        and request.membership
+        and request.membership.role == SchoolMembership.Role.TEACHER
+        and request.user.id in _connected_teacher_ids_for_student(student)
+    )
     return render(
         request,
         "core/student_detail.html",
-        {"student": student, "guardian_links": guardian_links, "form": form},
+        {
+            "student": student,
+            "guardian_links": guardian_links,
+            "form": form,
+            "can_message": can_message,
+        },
     )
 
 

@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+
+{% block title %}{{ other_party.get_full_name|default:other_party.username }} — Messages — Notipa{% endblock %}
+
+{% block breadcrumb %}
+  <a href="{% url 'core:messages' %}">Messages</a><span class="topbar__breadcrumb-sep">/</span><span class="topbar__breadcrumb-current">{{ other_party.get_full_name|default:other_party.username }}</span>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <span class="page-header__eyebrow">Communication</span>
+    <h1>{{ other_party.get_full_name|default:other_party.username }}</h1>
+    <p class="page-header__sub">Re: {{ thread.student.first_name }} {{ thread.student.last_name }}</p>
+  </div>
+</div>
+
+<div class="card card--pad-lg" style="max-width: 640px; margin-bottom: 20px;">
+  {% for m in thread_messages %}
+  <div style="padding: 10px 0; {% if not forloop.first %}border-top: 1px solid var(--line);{% endif %}">
+    <div class="list-row__meta">
+      <strong style="color: var(--ink);">{% if m.sender_id == request.user.id %}You{% else %}{{ m.sender.get_full_name|default:m.sender.username }}{% endif %}</strong>
+      · {{ m.sent_at|date:"M j, Y, g:i a" }}
+      {% if m.sender_id == request.user.id %}
+        {% if m.read_at %} · Seen{% else %} · Sent{% endif %}
+      {% endif %}
+    </div>
+    <p style="margin: 4px 0 0;">{{ m.body|linebreaksbr }}</p>
+  </div>
+  {% empty %}
+  <p class="text-dim" style="margin:0;">No messages yet — say hello.</p>
+  {% endfor %}
+</div>
+
+<div class="card card--pad-lg" style="max-width: 640px;">
+  <form method="post">
+    {% csrf_token %}
+    <div class="field">
+      <label class="field__label" for="id_body">Message</label>
+      <textarea class="input" name="body" id="id_body" rows="3" required autofocus></textarea>
+    </div>
+    <div style="margin-top: 12px;">
+      <button type="submit" class="btn btn--primary">Send</button>
+    </div>
+  </form>
+</div>
+{% endblock %}

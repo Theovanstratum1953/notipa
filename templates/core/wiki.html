@@ -32,6 +32,7 @@
     <li style="margin-bottom: 6px;"><a href="#fees">Fee Notices</a></li>
     <li style="margin-bottom: 6px;"><a href="#permission-slips">Permission Slips</a></li>
     <li style="margin-bottom: 6px;"><a href="#calendar">Calendar</a></li>
+    <li style="margin-bottom: 6px;"><a href="#messaging">Messaging</a></li>
     <li style="margin-bottom: 6px;"><a href="#for-guardians">What a guardian sees</a></li>
   </ul>
 </div>
@@ -55,6 +56,7 @@
   <p>Open <strong>Settings</strong> under Admin in the sidebar (admins only) to edit your current school's own profile: its name, country code, default language, timezone, and which month its academic year starts in.</p>
   <p>This edits whichever school is currently active for you — if you belong to more than one school, use the school switcher in the top-right first, then open Settings.</p>
   <p>The school's <strong>tier</strong> (Free/Track 1 or Paid/Track 2) is shown here but can't be changed from this page — that's a licensing decision handled by the platform operator, not something a school changes for itself.</p>
+  <p><strong>Guardian ↔ Teacher messaging</strong> is off by default — turn it on here once your school is ready to support real-time parent messaging (staffing, moderation, and expectations around response time are worth thinking through first). See <a href="#messaging">Messaging</a> below for what turning it on actually does.</p>
 </div>
 
 <div class="card card--pad-lg" id="teachers" style="margin-bottom: 20px;">
@@ -157,14 +159,25 @@
   <p>Teachers and guardians see a read-only version of this page listing upcoming closed days only — past ones drop off automatically rather than cluttering the list, though admins still see the full history on their management view.</p>
 </div>
 
+<div class="card card--pad-lg" id="messaging" style="margin-bottom: 20px;">
+  <h2 style="margin-top:0;">Messaging</h2>
+  <p>Direct, private, one-to-one messages between a guardian and their child's teacher — the "quick question" channel Announcements and Homework aren't built for, since those only ever go one way. <strong>Off by default</strong> for every school; an admin turns it on from <a href="#settings">Settings</a> when the school is actually ready to support it.</p>
+  <p><strong>Starting a conversation:</strong> either side can start one. A teacher clicks <strong>Message</strong> next to a guardian's name on that student's page (Students → the student → Guardians). A guardian clicks <strong>Message [teacher's name]</strong> on their child's page, under the class/homeroom-teacher card. Either way, it opens (or reopens, if one already exists) the same single thread for that guardian-teacher-student combination.</p>
+  <p><strong>Who you can message:</strong> a thread only exists where a real connection already exists in the data — a guardian can only message a teacher who actually teaches their child's class (homeroom or a co-teacher), and a teacher can only message a guardian actually linked to that student. There's no open staff directory and no group messaging; if a guardian has two children with two different teachers, that's two separate, unrelated threads.</p>
+  <p><strong>The conversation itself:</strong> plain text messages with timestamps, listed oldest to newest, with a composer at the bottom — file attachments aren't part of this first version. Your own sent messages show <strong>Sent</strong> until the other person actually opens the thread, then switch to <strong>Seen</strong>, the same read-receipt idea Announcements already uses.</p>
+  <p><strong>Messages</strong> in the sidebar (guardians and teachers only, and only once a school has turned messaging on) lists every conversation you're part of, most recently active first, with an unread count on any thread that has something new.</p>
+  <p>Message content isn't automatically moderated — a school turning this on takes on the same responsibility it already has for any other parent-teacher channel.</p>
+</div>
+
 <div class="card card--pad-lg" id="for-guardians">
   <h2 style="margin-top:0;">What a guardian sees</h2>
-  <p>Everything above except Announcements, Homework, Fee Notices, Permission Slips, and Calendar is for school staff. A guardian account sees something much simpler when they log in: their dashboard shows the child (or children) linked to their account at the current school, with each one's class and homeroom teacher. Clicking a child opens a read-only page with the same class/teacher information, plus that child's recent announcements, recent homework, recent fee notices, and recent permission slip status — a guardian can't edit a student's details, archive anyone, or add/remove guardian links from their own account.</p>
+  <p>Everything above except Announcements, Homework, Fee Notices, Permission Slips, Calendar, and Messaging is for school staff. A guardian account sees something much simpler when they log in: their dashboard shows the child (or children) linked to their account at the current school, with each one's class and homeroom teacher. Clicking a child opens a read-only page with the same class/teacher information, plus that child's recent announcements, recent homework, recent fee notices, and recent permission slip status — a guardian can't edit a student's details, archive anyone, or add/remove guardian links from their own account.</p>
   <p>A guardian's own <strong>Announcements</strong> page (same sidebar link, different content than staff see) lists every published, relevant announcement with a <strong>Mark as read</strong> button on each unread one.</p>
   <p>A guardian's own <strong>Homework</strong> page lists every homework item posted for their children's classes, with the due date, description, and a download link for any attachment. If a homework item accepts submissions, an upload control appears underneath it for each of your children in that class — attach a file (an image or a PDF, size-capped) and an optional note. You can replace it any time before the due date passes; after that, a first-ever submission is still accepted and simply flagged <strong>Late</strong>, but a submission that's already there can no longer be replaced. If more than one guardian is linked to the same child, any of you can submit or replace it, and all of you see the same up-to-date status.</p>
   <p>A guardian's own <strong>Fee Notices</strong> page lists every fee notice for their own children, with the amount, due date, description, and whether it's currently unpaid, paid, or waived. Like everywhere else in the app, no payments are taken here — it's informational only.</p>
   <p>A guardian's own <strong>Permission Slips</strong> page lists every permission slip for their own children, with a <strong>Yes</strong>/<strong>No</strong> button and an optional notes field for each one still awaiting a response — and shows their existing answer for ones they've already responded to, which they can change any time by submitting again.</p>
   <p>A guardian's own <strong>Calendar</strong> page lists the school's upcoming closed days, same as what teachers see — read-only, so you can tell at a glance why school's out next Thursday.</p>
+  <p>If your school has turned on messaging, a <strong>Message [teacher]</strong> button appears on your child's page for each teacher actually teaching their class. Sending a first message starts a private thread with just that teacher, about just that child — <strong>Messages</strong> in the sidebar lists all of your conversations, and other guardians linked to the same child don't see or share your threads with a teacher; each guardian's conversations are their own.</p>
   <p>If a guardian logs in and sees no children listed, it means nobody has linked their account to a student yet — a school admin or teacher needs to do that from the student's or guardian's own page (see <a href="#linking">Linking guardians and students</a>).</p>
 </div>
 {% endblock %}

@@ -120,4 +120,11 @@ urlpatterns = [
         views.calendar_closed_days_json,
         name="calendar_closed_days_json",
     ),
+    path("messages/", views.messages_inbox, name="messages"),
+    path(
+        "messages/start/<uuid:student_pk>/<uuid:other_user_pk>/",
+        views.message_thread_start,
+        name="message_thread_start",
+    ),
+    path("messages/<uuid:pk>/", views.message_thread_detail, name="message_thread_detail"),
 ]

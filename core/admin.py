@@ -8,6 +8,8 @@ from .models import (
     GuardianLink,
     Homework,
     HomeworkSubmission,
+    Message,
+    MessageThread,
     PermissionSlip,
     PermissionSlipResponse,
     School,
@@ -170,3 +172,29 @@ class SchoolCalendarEventAdmin(admin.ModelAdmin):
     list_filter = ("school", "event_type")
     search_fields = ("label",)
     autocomplete_fields = ["school", "created_by"]
+
+
+class MessageInline(admin.TabularInline):
+    model = Message
+    extra = 0
+    autocomplete_fields = ["sender"]
+
+
+@admin.register(MessageThread)
+class MessageThreadAdmin(admin.ModelAdmin):
+    list_display = ("student", "guardian", "teacher", "school", "last_message_at", "created_at")
+    list_filter = ("school",)
+    search_fields = (
+        "student__first_name", "student__last_name",
+        "guardian__username", "teacher__username",
+    )
+    autocomplete_fields = ["school", "student", "guardian", "teacher"]
+    inlines = [MessageInline]
+
+
+@admin.register(Message)
+class MessageAdmin(admin.ModelAdmin):
+    list_display = ("thread", "sender", "sent_at", "read_at")
+    list_filter = ("sent_at",)
+    search_fields = ("body",)
+    autocomplete_fields = ["thread", "sender"]

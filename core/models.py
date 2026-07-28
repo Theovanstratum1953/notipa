@@ -129,6 +129,17 @@ class School(UUIDModel):
         validators=[MinValueValidator(1), MaxValueValidator(12)],
         help_text="Month (1-12) the school's academic year starts, e.g. 6 for June.",
     )
+    messaging_enabled = models.BooleanField(
+        default=False,
+        help_text=(
+            "Turns on direct guardian ↔ teacher messaging for this school. Off "
+            "by default: schools that aren't ready to support real-time parent "
+            "messaging (staffing, moderation, expectations around response "
+            "time) shouldn't have it forced on them. A prerequisite for "
+            "MessageThread/Message below, not just a UI hint — thread-creation "
+            "and thread-viewing views re-check this server-side."
+        ),
+    )
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -677,3 +688,114 @@ class SchoolCalendarEvent(UUIDModel):
         if self.start_date == self.end_date:
             return f"{self.label} ({self.start_date}) — {self.school}"
         return f"{self.label} ({self.start_date} – {self.end_date}) — {self.school}"
+
+
+class MessageThread(UUIDModel):
+    """
+    A private, one-to-one conversation between a guardian and a teacher,
+    scoped to the one student that connects them — the "quick question"
+    channel Announcements and Homework aren't built for, since those are
+    always broadcast, never a reply back.
+
+    Deliberately narrow in shape: exactly one guardian, one teacher, one
+    student per thread, not a general-purpose DM or group chat. If a
+    guardian has two children with two different teachers, that's two
+    separate MessageThread rows, not one thread that branches — keeping
+    "who can see this thread" trivially answerable (its own guardian and
+    teacher fields, nothing else) rather than needing a participants
+    list. Class group messaging (mentioned as a later feature) is meant
+    to reuse this same Message model against a different kind of thread
+    later, not to replace this one.
+
+    guardian and teacher are both plain User FKs (not SchoolMembership),
+    matching how GuardianLink.guardian and PermissionSlipResponse.
+    guardian already identify a specific person rather than a role
+    assignment — a thread is between two specific people, not "whoever
+    currently holds the homeroom_teacher slot."
+
+    Existence of a thread does not by itself mean either side has
+    actually said anything yet — core.views.message_thread_start
+    get_or_creates a thread with zero messages the moment either side
+    clicks "Message" from a student's page, and the thread only shows up
+    meaningfully in an inbox once a first Message is sent.
+    """
+
+    school = models.ForeignKey(
+        School, on_delete=models.CASCADE, related_name="message_threads"
+    )
+    student = models.ForeignKey(
+        Student, on_delete=models.CASCADE, related_name="message_threads"
+    )
+    guardian = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="message_threads_as_guardian",
+    )
+    teacher = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="message_threads_as_teacher",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    last_message_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text=(
+            "Denormalized copy of the newest Message.sent_at in this thread, "
+            "kept in sync by core.views.message_thread_detail whenever a "
+            "reply is posted — lets the inbox sort by most recent activity "
+            "without aggregating over every thread's messages on every "
+            "inbox load."
+        ),
+    )
+
+    class Meta:
+        ordering = ["-last_message_at", "-created_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["guardian", "teacher", "student"],
+                name="unique_thread_per_guardian_teacher_student",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["school", "guardian"]),
+            models.Index(fields=["school", "teacher"]),
+        ]
+
+    def __str__(self):
+        return f"{self.guardian} ↔ {self.teacher} — {self.student}"
+
+
+class Message(UUIDModel):
+    """
+    One message within a MessageThread. read_at is meaningful without a
+    separate through-model (unlike AnnouncementRead) because a thread
+    has exactly two participants — there's only ever one possible
+    "other person" who could read a given message, so a single nullable
+    timestamp on the message itself is enough to answer "has the
+    recipient seen this yet."
+    """
+
+    thread = models.ForeignKey(MessageThread, on_delete=models.CASCADE, related_name="messages")
+    sender = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name="messages_sent",
+    )
+    body = models.TextField()
+    sent_at = models.DateTimeField(auto_now_add=True)
+    read_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Set when the other participant in the thread views it.",
+    )
+
+    class Meta:
+        ordering = ["sent_at"]
+        indexes = [
+            models.Index(fields=["thread", "sent_at"]),
+        ]
+
+    def __str__(self):
+        return f"{self.sender} in {self.thread} at {self.sent_at}"

@@ -79,6 +79,16 @@
             Calendar
           </a>
         </li>
+        {% if request.school.messaging_enabled %}
+          {% if request.membership.role == "guardian" or request.membership.role == "teacher" %}
+          <li class="sidebar__nav-item">
+            <a href="{% url 'core:messages' %}" class="{% if request.resolver_match.url_name == 'messages' or request.resolver_match.url_name == 'message_thread_detail' %}active{% endif %}">
+              <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+              Messages
+            </a>
+          </li>
+          {% endif %}
+        {% endif %}
       </ul>
     </nav>
 

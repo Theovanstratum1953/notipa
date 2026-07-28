@@ -67,8 +67,11 @@
             <span class="text-dim">—</span>
           {% endif %}
         </td>
-        <td>
-          <form method="post" action="{% url 'core:guardian_link_remove' student.pk link.pk %}" onsubmit="return confirm('Remove {{ link.guardian.get_full_name|default:link.guardian.username }} as a guardian of {{ student.first_name }}?');" style="margin:0;">
+        <td style="white-space: nowrap;">
+          {% if can_message %}
+          <a href="{% url 'core:message_thread_start' student.pk link.guardian.pk %}" class="btn btn--secondary btn--sm">Message</a>
+          {% endif %}
+          <form method="post" action="{% url 'core:guardian_link_remove' student.pk link.pk %}" onsubmit="return confirm('Remove {{ link.guardian.get_full_name|default:link.guardian.username }} as a guardian of {{ student.first_name }}?');" style="display:inline;">
             {% csrf_token %}
             <button type="submit" class="btn btn--danger btn--sm">Remove</button>
           </form>

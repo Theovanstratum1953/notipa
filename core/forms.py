@@ -85,7 +85,14 @@ class SchoolSettingsForm(forms.ModelForm):
 
     class Meta:
         model = School
-        fields = ["name", "country", "default_language", "timezone", "academic_year_start_month"]
+        fields = [
+            "name",
+            "country",
+            "default_language",
+            "timezone",
+            "academic_year_start_month",
+            "messaging_enabled",
+        ]
         widgets = {
             "name": forms.TextInput(
                 attrs={"class": "input", "placeholder": "e.g. Sampaguita Elementary School"}
@@ -105,7 +112,15 @@ class SchoolSettingsForm(forms.ModelForm):
         }
         help_texts = {
             "academic_year_start_month": "Month the academic year starts, 1–12 (e.g. 6 for June).",
+            "messaging_enabled": (
+                "Lets guardians and teachers message each other directly, one "
+                "to one, about a shared student. Off by default."
+            ),
         }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["messaging_enabled"].required = False
 
 
 class SchoolClassForm(forms.ModelForm):

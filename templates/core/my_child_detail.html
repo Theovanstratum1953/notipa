@@ -34,6 +34,16 @@
   {% else %}
     <p class="text-dim">Not assigned to a class yet.</p>
   {% endif %}
+
+  {% if connected_teachers %}
+  <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line);">
+    {% for teacher in connected_teachers %}
+    <a href="{% url 'core:message_thread_start' student.pk teacher.pk %}" class="btn btn--secondary btn--sm" style="margin: 0 8px 8px 0;">
+      Message {{ teacher.get_full_name|default:teacher.username }}
+    </a>
+    {% endfor %}
+  </div>
+  {% endif %}
 </div>
 
 <div class="card card--pad-lg" style="max-width: 480px; margin-bottom: 20px;">
