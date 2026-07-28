@@ -2,7 +2,7 @@ from django.conf import settings as django_settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.db.models import Count, Q
-from django.http import Http404, HttpResponseRedirect
+from django.http import Http404, HttpResponseRedirect, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.views.decorators.http import require_POST
@@ -16,6 +16,7 @@ from .forms import (
     HomeworkForm,
     HomeworkSubmissionForm,
     PermissionSlipForm,
+    SchoolCalendarEventForm,
     SchoolClassForm,
     SchoolForm,
     SchoolSettingsForm,
@@ -34,6 +35,7 @@ from .models import (
     PermissionSlip,
     PermissionSlipResponse,
     School,
+    SchoolCalendarEvent,
     SchoolClass,
     SchoolMembership,
     Student,
@@ -1075,6 +1077,136 @@ def permission_slip_respond(request, pk, student_pk):
     response.save(update_fields=["response", "guardian", "notes", "responded_at"])
     messages.success(request, "Your response has been recorded.")
     return redirect("core:permission_slips")
+
+
+# ---------------------------------------------------------------------
+# School Calendar — a per-school list of closed days (public holidays,
+# in-service days, school-declared breaks). Deliberately narrower than
+# every other section above in one specific way: write access is
+# admin-only, not admin+teacher — "an admin maintains a list," with
+# teachers getting the same read-only view guardians get, since only
+# one person per school should be actively curating this. It's a
+# calendar of exceptions, not a scheduling system: no timetables, no
+# recurring events, just which days the school is closed.
+#
+# The other half of this feature — the soft, non-blocking warning that
+# shows up on the homework/fee-notice/permission-slip due-date pickers
+# — is calendar_closed_days_json below, plus the small shared script in
+# core/static/core/js/calendar-warnings.js those three form templates
+# include.
+# ---------------------------------------------------------------------
+
+@login_required
+def calendar_list(request):
+    """Dispatches by role: an admin gets the full management list (past
+    and future, with add/edit/delete), teachers and guardians get a
+    read-only list of upcoming closed days only — same read-only shape
+    for both, since neither can edit this calendar."""
+    if request.school is None:
+        messages.error(request, "You need to be linked to a school to see the calendar.")
+        return redirect("core:dashboard")
+
+    if request.membership.role != SchoolMembership.Role.ADMIN:
+        events = scope_to_school(
+            SchoolCalendarEvent.objects.filter(end_date__gte=timezone.localdate()), request
+        ).order_by("start_date")
+        return render(request, "core/calendar_readonly.html", {"events": events})
+
+    events = scope_to_school(SchoolCalendarEvent.objects.all(), request).order_by("start_date")
+    return render(request, "core/calendar_list.html", {"events": events})
+
+
+@login_required
+@role_required(SchoolMembership.Role.ADMIN)
+def calendar_new(request):
+    if request.school is None:
+        messages.error(
+            request, "You need to be linked to a school before you can add a closed day."
+        )
+        return redirect("core:dashboard")
+
+    if request.method == "POST":
+        form = SchoolCalendarEventForm(request.POST, school=request.school)
+        if form.is_valid():
+            event = form.save(commit=False)
+            event.created_by = request.user
+            event.save()
+            messages.success(request, f"“{event.label}” added to the calendar.")
+            return redirect("core:calendar")
+    else:
+        form = SchoolCalendarEventForm(school=request.school)
+
+    return render(request, "core/calendar_form.html", {"form": form})
+
+
+def _get_calendar_event_or_404(request, pk):
+    return get_object_or_404(
+        scope_to_school(SchoolCalendarEvent.objects.all(), request), pk=pk
+    )
+
+
+@login_required
+@role_required(SchoolMembership.Role.ADMIN)
+def calendar_edit(request, pk):
+    event = _get_calendar_event_or_404(request, pk)
+
+    if request.method == "POST":
+        form = SchoolCalendarEventForm(request.POST, instance=event, school=request.school)
+        if form.is_valid():
+            form.save()
+            messages.success(request, f"“{event.label}” updated.")
+            return redirect("core:calendar")
+    else:
+        form = SchoolCalendarEventForm(instance=event, school=request.school)
+
+    return render(request, "core/calendar_form.html", {"form": form, "event": event})
+
+
+@login_required
+@role_required(SchoolMembership.Role.ADMIN)
+@require_POST
+def calendar_delete(request, pk):
+    event = _get_calendar_event_or_404(request, pk)
+    label = event.label
+    event.delete()
+    messages.success(request, f"“{label}” removed from the calendar.")
+    return redirect("core:calendar")
+
+
+@login_required
+def calendar_closed_days_json(request):
+    """
+    Feeds the non-blocking due-date warning script (core/static/core/js/
+    calendar-warnings.js) used on the homework, fee notice, and
+    permission slip forms. Any logged-in role can fetch this — the
+    calendar itself is already visible read-only to teachers and
+    guardians, so there's nothing here a JSON copy of the same rows
+    exposes that the calendar page doesn't already show — but in
+    practice only admins/teachers filling in a due-date field ever
+    actually call it, since guardians never see those forms.
+
+    Scoped to request.school like everything else; returns an empty
+    list rather than an error if there's no active school, since a
+    missing/empty warning is a safe default for a script that isn't
+    essential to the form it's enhancing.
+    """
+    if request.school is None:
+        return JsonResponse({"closed_days": []})
+
+    events = scope_to_school(SchoolCalendarEvent.objects.all(), request)
+    return JsonResponse(
+        {
+            "closed_days": [
+                {
+                    "label": event.label,
+                    "start": event.start_date.isoformat(),
+                    "end": event.end_date.isoformat(),
+                    "type": event.event_type,
+                }
+                for event in events
+            ]
+        }
+    )
 
 
 @login_required

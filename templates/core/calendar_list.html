@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+
+{% block title %}Calendar — Notipa{% endblock %}
+
+{% block breadcrumb %}
+  <span class="topbar__breadcrumb-current">Calendar</span>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <span class="page-header__eyebrow">Admin</span>
+    <h1>Calendar</h1>
+    <p class="page-header__sub">{{ events|length }} closed day{{ events|length|pluralize }} at {{ request.school.name }} — public holidays, in-service days, and school-declared breaks. Teachers and guardians see this list read-only.</p>
+  </div>
+  <a href="{% url 'core:calendar_new' %}" class="btn btn--primary">
+    <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+    New Closed Day
+  </a>
+</div>
+
+<div class="table-wrap">
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>Label</th>
+        <th>Dates</th>
+        <th>Type</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for e in events %}
+      <tr>
+        <td class="cell--title">{{ e.label }}</td>
+        <td>
+          {% if e.start_date == e.end_date %}
+            {{ e.start_date|date:"M j, Y" }}
+          {% else %}
+            {{ e.start_date|date:"M j" }} – {{ e.end_date|date:"M j, Y" }}
+          {% endif %}
+        </td>
+        <td>
+          <span class="tag {% if e.event_type == 'holiday' %}tag--active{% elif e.event_type == 'in_service' %}tag--warning{% else %}tag--neutral{% endif %}"><span class="tag__eyelet"></span>{{ e.get_event_type_display }}</span>
+        </td>
+        <td style="white-space: nowrap;">
+          <a href="{% url 'core:calendar_edit' e.pk %}" class="btn btn--secondary btn--sm">Edit</a>
+          <form method="post" action="{% url 'core:calendar_delete' e.pk %}" style="display:inline;" onsubmit="return confirm('Remove “{{ e.label|escapejs }}” from the calendar? This can\'t be undone.');">
+            {% csrf_token %}
+            <button type="submit" class="btn btn--danger btn--sm">Delete</button>
+          </form>
+        </td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="4"><div class="empty-list">No closed days added yet.</div></td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

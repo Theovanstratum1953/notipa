@@ -31,6 +31,7 @@
     <li style="margin-bottom: 6px;"><a href="#homework">Homework</a></li>
     <li style="margin-bottom: 6px;"><a href="#fees">Fee Notices</a></li>
     <li style="margin-bottom: 6px;"><a href="#permission-slips">Permission Slips</a></li>
+    <li style="margin-bottom: 6px;"><a href="#calendar">Calendar</a></li>
     <li style="margin-bottom: 6px;"><a href="#for-guardians">What a guardian sees</a></li>
   </ul>
 </div>
@@ -123,6 +124,8 @@
   <p><strong>Editing:</strong> use <strong>Edit</strong> from the list to change the title, description, due date, or replace the attachment.</p>
   <p><strong>Deleting:</strong> like Announcements, there's no archive here — <strong>Delete</strong> removes a homework item permanently, with a confirmation prompt first.</p>
   <p>Guardians only see homework for classes their own linked children are actually in — never other classes at the same school, even ones they can otherwise see announcements for.</p>
+  <p><strong>Collecting submissions:</strong> turn on <strong>Accepts submissions</strong> when creating or editing a homework item to let guardians attach a file against it — a photo of completed work, a scanned worksheet, that kind of thing. It's off by default, so nothing changes for existing homework unless you switch it on.</p>
+  <p><strong>Viewing submissions:</strong> click a homework item's title to open its detail page. If submissions are on, you'll see a roster of every active student in the class, each marked <strong>Submitted</strong>, <strong>Late</strong>, or <strong>Missing</strong> — worked out automatically from the due date and when the file came in, so there's nothing to mark by hand. "Missing" only appears once the due date has passed; before that, a student who hasn't submitted yet just shows as not yet submitted. Each row also shows who submitted it (any guardian linked to the student can) and when, with a <strong>Download</strong> link to open the file.</p>
 </div>
 
 <div class="card card--pad-lg" id="fees" style="margin-bottom: 20px;">
@@ -145,13 +148,23 @@
   <p>A guardian sees a permission slip for each of their own children it applies to, and can respond <strong>Yes</strong> or <strong>No</strong> with an optional note — they can change their answer any time by submitting again. A guardian only ever sees and responds for their own linked children, never another family's.</p>
 </div>
 
+<div class="card card--pad-lg" id="calendar" style="margin-bottom: 20px;">
+  <h2 style="margin-top:0;">Calendar</h2>
+  <p>Open <strong>Calendar</strong> in the sidebar to see a school's closed days — public holidays, in-service days, and school-declared breaks. It's a calendar of exceptions, not a full scheduling system: no timetables, no period-by-period class schedules, just which days the school is open or not.</p>
+  <p><strong>Managing closed days (admins only):</strong> click <strong>New Closed Day</strong> and give it a label (e.g. "Independence Day" or "Term 1 break"), a start date, an end date, and a type (public holiday, in-service day, or other). A single-day closure just sets the start and end date the same; a longer break (a two-week holiday, say) is one entry with a start and end date rather than one row per day. Use <strong>Edit</strong> or <strong>Delete</strong> from the list to change or remove one — deleting has a confirmation prompt and, like Announcements/Homework/Fee Notices/Permission Slips, there's no archive here.</p>
+  <p>Unlike most other sections in this app, this one is deliberately <strong>admin-only</strong> to manage — teachers get the same read-only view guardians get, rather than write access, so there's one person per school actively curating it rather than several editing it independently.</p>
+  <p><strong>Due-date warnings:</strong> the due-date fields on Homework, Fee Notices, and Permission Slips check against this same calendar. If you pick a date that falls on a closed day, a warning appears under the field — but it's just that, a warning: the app won't stop you from saving it, since schools sometimes do want a due date to land right after a break on purpose.</p>
+  <p>Teachers and guardians see a read-only version of this page listing upcoming closed days only — past ones drop off automatically rather than cluttering the list, though admins still see the full history on their management view.</p>
+</div>
+
 <div class="card card--pad-lg" id="for-guardians">
   <h2 style="margin-top:0;">What a guardian sees</h2>
-  <p>Everything above except Announcements, Homework, Fee Notices, and Permission Slips is for school staff. A guardian account sees something much simpler when they log in: their dashboard shows the child (or children) linked to their account at the current school, with each one's class and homeroom teacher. Clicking a child opens a read-only page with the same class/teacher information, plus that child's recent announcements, recent homework, recent fee notices, and recent permission slip status — a guardian can't edit a student's details, archive anyone, or add/remove guardian links from their own account.</p>
+  <p>Everything above except Announcements, Homework, Fee Notices, Permission Slips, and Calendar is for school staff. A guardian account sees something much simpler when they log in: their dashboard shows the child (or children) linked to their account at the current school, with each one's class and homeroom teacher. Clicking a child opens a read-only page with the same class/teacher information, plus that child's recent announcements, recent homework, recent fee notices, and recent permission slip status — a guardian can't edit a student's details, archive anyone, or add/remove guardian links from their own account.</p>
   <p>A guardian's own <strong>Announcements</strong> page (same sidebar link, different content than staff see) lists every published, relevant announcement with a <strong>Mark as read</strong> button on each unread one.</p>
-  <p>A guardian's own <strong>Homework</strong> page lists every homework item posted for their children's classes, with the due date, description, and a download link for any attachment.</p>
+  <p>A guardian's own <strong>Homework</strong> page lists every homework item posted for their children's classes, with the due date, description, and a download link for any attachment. If a homework item accepts submissions, an upload control appears underneath it for each of your children in that class — attach a file (an image or a PDF, size-capped) and an optional note. You can replace it any time before the due date passes; after that, a first-ever submission is still accepted and simply flagged <strong>Late</strong>, but a submission that's already there can no longer be replaced. If more than one guardian is linked to the same child, any of you can submit or replace it, and all of you see the same up-to-date status.</p>
   <p>A guardian's own <strong>Fee Notices</strong> page lists every fee notice for their own children, with the amount, due date, description, and whether it's currently unpaid, paid, or waived. Like everywhere else in the app, no payments are taken here — it's informational only.</p>
   <p>A guardian's own <strong>Permission Slips</strong> page lists every permission slip for their own children, with a <strong>Yes</strong>/<strong>No</strong> button and an optional notes field for each one still awaiting a response — and shows their existing answer for ones they've already responded to, which they can change any time by submitting again.</p>
+  <p>A guardian's own <strong>Calendar</strong> page lists the school's upcoming closed days, same as what teachers see — read-only, so you can tell at a glance why school's out next Thursday.</p>
   <p>If a guardian logs in and sees no children listed, it means nobody has linked their account to a student yet — a school admin or teacher needs to do that from the student's or guardian's own page (see <a href="#linking">Linking guardians and students</a>).</p>
 </div>
 {% endblock %}

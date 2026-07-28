@@ -314,6 +314,7 @@ ul, ol { margin: 0; padding: 0; list-style: none; }
   margin-bottom: 6px;
 }
 .field__hint { font-size: 12px; color: var(--ink-dim); margin-top: 5px; }
+.field__hint--warning { color: var(--amber); font-weight: 600; }
 
 .input, .select, textarea.input {
   width: 100%;

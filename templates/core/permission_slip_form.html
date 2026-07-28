@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% load static %}
 
 {% block title %}{% if permission_slip %}Edit Permission Slip{% else %}New Permission Slip{% endif %} — Notipa{% endblock %}
 
@@ -61,4 +62,7 @@
   <a href="{% url 'core:permission_slip_detail' permission_slip.pk %}" class="btn btn--secondary">View Responses</a>
 </div>
 {% endif %}
+
+<script>window.NOTIPA_CLOSED_DAYS_URL = "{% url 'core:calendar_closed_days_json' %}";</script>
+<script src="{% static 'core/js/calendar-warnings.js' %}"></script>
 {% endblock %}

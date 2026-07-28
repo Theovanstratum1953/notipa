@@ -10,6 +10,7 @@ from .models import (
     HomeworkSubmission,
     PermissionSlip,
     School,
+    SchoolCalendarEvent,
     SchoolClass,
     SchoolMembership,
     Student,
@@ -736,7 +737,9 @@ class HomeworkForm(forms.ModelForm):
             "school_class": forms.Select(attrs={"class": "select"}),
             "title": forms.TextInput(attrs={"class": "input"}),
             "description": forms.Textarea(attrs={"class": "input", "rows": 5}),
-            "due_date": forms.DateInput(attrs={"class": "input", "type": "date"}),
+            "due_date": forms.DateInput(
+                attrs={"class": "input", "type": "date", "data-warn-closed-days": "1"}
+            ),
         }
 
     def __init__(self, *args, school=None, **kwargs):
@@ -788,7 +791,9 @@ class FeeNoticeForm(forms.ModelForm):
             "currency": forms.TextInput(
                 attrs={"class": "input", "placeholder": "e.g. PHP", "maxlength": 3}
             ),
-            "due_date": forms.DateInput(attrs={"class": "input", "type": "date"}),
+            "due_date": forms.DateInput(
+                attrs={"class": "input", "type": "date", "data-warn-closed-days": "1"}
+            ),
         }
 
     def __init__(self, *args, school=None, **kwargs):
@@ -833,7 +838,9 @@ class PermissionSlipForm(forms.ModelForm):
             "description": forms.Textarea(attrs={"class": "input", "rows": 5}),
             "school_class": forms.Select(attrs={"class": "select"}),
             "event_date": forms.DateInput(attrs={"class": "input", "type": "date"}),
-            "response_deadline": forms.DateInput(attrs={"class": "input", "type": "date"}),
+            "response_deadline": forms.DateInput(
+                attrs={"class": "input", "type": "date", "data-warn-closed-days": "1"}
+            ),
         }
 
     def __init__(self, *args, school=None, **kwargs):
@@ -880,3 +887,48 @@ class HomeworkSubmissionForm(forms.ModelForm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.fields["note"].required = False
+
+
+class SchoolCalendarEventForm(forms.ModelForm):
+    """
+    Creates or edits a closed day (or range of closed days) on a
+    school's calendar — core.views.calendar_new/calendar_edit.
+    Admin-only, deliberately narrower than most other forms in this
+    file (which are usually admin+teacher): the calendar overview
+    treats this as "an admin maintains a list," with teachers getting
+    the same read-only view guardians get, so there's only ever one
+    person per school actively curating it.
+
+    `school` is passed in explicitly by the view (never taken from POST
+    data), same pattern as every other school-scoped form here.
+    end_date >= start_date is enforced on the model's clean(), not
+    re-declared here, so ModelForm validation and any future direct
+    .full_clean() call agree on the same rule.
+    """
+
+    class Meta:
+        model = SchoolCalendarEvent
+        fields = ["label", "start_date", "end_date", "event_type"]
+        widgets = {
+            "label": forms.TextInput(
+                attrs={"class": "input", "placeholder": "e.g. Independence Day"}
+            ),
+            "start_date": forms.DateInput(attrs={"class": "input", "type": "date"}),
+            "end_date": forms.DateInput(attrs={"class": "input", "type": "date"}),
+            "event_type": forms.Select(attrs={"class": "select"}),
+        }
+        help_texts = {
+            "end_date": "Same as start date for a single closed day.",
+        }
+
+    def __init__(self, *args, school=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.instance.school = school
+
+    def clean(self):
+        cleaned_data = super().clean()
+        start_date = cleaned_data.get("start_date")
+        end_date = cleaned_data.get("end_date")
+        if start_date and end_date and end_date < start_date:
+            self.add_error("end_date", "End date can't be before the start date.")
+        return cleaned_data

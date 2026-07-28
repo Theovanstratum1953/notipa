@@ -1,9 +1,10 @@
 import shutil
 import tempfile
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
+from django.core.exceptions import ValidationError
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 from django.urls import reverse
@@ -19,6 +20,7 @@ from .models import (
     PermissionSlip,
     PermissionSlipResponse,
     School,
+    SchoolCalendarEvent,
     SchoolClass,
     SchoolMembership,
     Student,
@@ -2811,3 +2813,248 @@ class HomeworkSubmissionGuardianPermissionTests(TestCase):
         self.assertFalse(
             HomeworkSubmission.objects.filter(homework=self.homework, student=self.my_child).exists()
         )
+
+
+class SchoolCalendarEventTests(TestCase):
+    """
+    Covers the School Calendar feature: core.models.SchoolCalendarEvent,
+    core.forms.SchoolCalendarEventForm, and core.views.calendar_list/
+    calendar_new/calendar_edit/calendar_delete/calendar_closed_days_json.
+    Write access is deliberately admin-only here (not admin+teacher, the
+    shape most other sections in this app use) — teachers get the same
+    read-only view guardians get, per the feature's "an admin maintains
+    a list" design.
+    """
+
+    def setUp(self):
+        self.school_a = School.objects.create(name="School A", country="PH")
+        self.school_b = School.objects.create(name="School B", country="PH")
+
+        self.admin_a = User.objects.create_user(username="admin_a", password="pw12345!")
+        SchoolMembership.objects.create(
+            user=self.admin_a, school=self.school_a, role=SchoolMembership.Role.ADMIN
+        )
+        self.teacher_a = User.objects.create_user(username="teacher_a", password="pw12345!")
+        SchoolMembership.objects.create(
+            user=self.teacher_a, school=self.school_a, role=SchoolMembership.Role.TEACHER
+        )
+        self.guardian_a = User.objects.create_user(username="guardian_a", password="pw12345!")
+        SchoolMembership.objects.create(
+            user=self.guardian_a, school=self.school_a, role=SchoolMembership.Role.GUARDIAN
+        )
+        self.admin_b = User.objects.create_user(username="admin_b", password="pw12345!")
+        SchoolMembership.objects.create(
+            user=self.admin_b, school=self.school_b, role=SchoolMembership.Role.ADMIN
+        )
+
+        self.today = timezone.localdate()
+
+    def test_model_rejects_end_before_start(self):
+        event = SchoolCalendarEvent(
+            school=self.school_a,
+            label="Bad range",
+            start_date=date(2026, 8, 10),
+            end_date=date(2026, 8, 1),
+        )
+        with self.assertRaises(ValidationError):
+            event.full_clean()
+
+    def test_admin_can_create_closed_day(self):
+        self.client.login(username="admin_a", password="pw12345!")
+        response = self.client.post(
+            reverse("core:calendar_new"),
+            {
+                "label": "Independence Day",
+                "start_date": "2026-08-15",
+                "end_date": "2026-08-15",
+                "event_type": "holiday",
+            },
+        )
+        self.assertRedirects(response, reverse("core:calendar"))
+        event = SchoolCalendarEvent.objects.get(label="Independence Day")
+        self.assertEqual(event.school, self.school_a)
+        self.assertEqual(event.created_by, self.admin_a)
+
+    def test_teacher_cannot_create_closed_day(self):
+        self.client.login(username="teacher_a", password="pw12345!")
+        response = self.client.get(reverse("core:calendar_new"))
+        self.assertEqual(response.status_code, 403)
+
+    def test_guardian_cannot_create_closed_day(self):
+        self.client.login(username="guardian_a", password="pw12345!")
+        response = self.client.get(reverse("core:calendar_new"))
+        self.assertEqual(response.status_code, 403)
+
+    def test_form_rejects_end_before_start(self):
+        self.client.login(username="admin_a", password="pw12345!")
+        response = self.client.post(
+            reverse("core:calendar_new"),
+            {
+                "label": "Bad range",
+                "start_date": "2026-08-15",
+                "end_date": "2026-08-01",
+                "event_type": "other",
+            },
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(SchoolCalendarEvent.objects.filter(label="Bad range").exists())
+
+    def test_admin_can_edit_and_delete(self):
+        event = SchoolCalendarEvent.objects.create(
+            school=self.school_a,
+            label="Old label",
+            start_date=date(2026, 9, 1),
+            end_date=date(2026, 9, 1),
+            created_by=self.admin_a,
+        )
+        self.client.login(username="admin_a", password="pw12345!")
+        response = self.client.post(
+            reverse("core:calendar_edit", args=[event.pk]),
+            {
+                "label": "New label",
+                "start_date": "2026-09-01",
+                "end_date": "2026-09-02",
+                "event_type": "in_service",
+            },
+        )
+        self.assertRedirects(response, reverse("core:calendar"))
+        event.refresh_from_db()
+        self.assertEqual(event.label, "New label")
+        self.assertEqual(event.event_type, "in_service")
+
+        response = self.client.post(reverse("core:calendar_delete", args=[event.pk]))
+        self.assertRedirects(response, reverse("core:calendar"))
+        self.assertFalse(SchoolCalendarEvent.objects.filter(pk=event.pk).exists())
+
+    def test_teacher_cannot_edit_or_delete(self):
+        event = SchoolCalendarEvent.objects.create(
+            school=self.school_a,
+            label="Protected",
+            start_date=date(2026, 9, 1),
+            end_date=date(2026, 9, 1),
+            created_by=self.admin_a,
+        )
+        self.client.login(username="teacher_a", password="pw12345!")
+        response = self.client.get(reverse("core:calendar_edit", args=[event.pk]))
+        self.assertEqual(response.status_code, 403)
+        response = self.client.post(reverse("core:calendar_delete", args=[event.pk]))
+        self.assertEqual(response.status_code, 403)
+        self.assertTrue(SchoolCalendarEvent.objects.filter(pk=event.pk).exists())
+
+    def test_admin_cannot_edit_other_schools_event(self):
+        event = SchoolCalendarEvent.objects.create(
+            school=self.school_b,
+            label="Not yours",
+            start_date=date(2026, 9, 1),
+            end_date=date(2026, 9, 1),
+            created_by=self.admin_b,
+        )
+        self.client.login(username="admin_a", password="pw12345!")
+        response = self.client.get(reverse("core:calendar_edit", args=[event.pk]))
+        self.assertEqual(response.status_code, 404)
+
+    def test_admin_sees_past_and_future_events(self):
+        SchoolCalendarEvent.objects.create(
+            school=self.school_a,
+            label="Past break",
+            start_date=self.today - timedelta(days=30),
+            end_date=self.today - timedelta(days=25),
+            created_by=self.admin_a,
+        )
+        SchoolCalendarEvent.objects.create(
+            school=self.school_a,
+            label="Upcoming holiday",
+            start_date=self.today + timedelta(days=10),
+            end_date=self.today + timedelta(days=10),
+            created_by=self.admin_a,
+        )
+        self.client.login(username="admin_a", password="pw12345!")
+        response = self.client.get(reverse("core:calendar"))
+        self.assertTemplateUsed(response, "core/calendar_list.html")
+        labels = {e.label for e in response.context["events"]}
+        self.assertEqual(labels, {"Past break", "Upcoming holiday"})
+
+    def test_teacher_and_guardian_see_only_upcoming(self):
+        SchoolCalendarEvent.objects.create(
+            school=self.school_a,
+            label="Past break",
+            start_date=self.today - timedelta(days=30),
+            end_date=self.today - timedelta(days=25),
+            created_by=self.admin_a,
+        )
+        SchoolCalendarEvent.objects.create(
+            school=self.school_a,
+            label="Upcoming holiday",
+            start_date=self.today + timedelta(days=10),
+            end_date=self.today + timedelta(days=10),
+            created_by=self.admin_a,
+        )
+        for username in ("teacher_a", "guardian_a"):
+            self.client.login(username=username, password="pw12345!")
+            response = self.client.get(reverse("core:calendar"))
+            self.assertTemplateUsed(response, "core/calendar_readonly.html")
+            labels = {e.label for e in response.context["events"]}
+            self.assertEqual(labels, {"Upcoming holiday"})
+            self.client.logout()
+
+    def test_closed_days_json_scoped_to_school(self):
+        SchoolCalendarEvent.objects.create(
+            school=self.school_a,
+            label="School A holiday",
+            start_date=date(2026, 8, 15),
+            end_date=date(2026, 8, 15),
+            event_type="holiday",
+            created_by=self.admin_a,
+        )
+        SchoolCalendarEvent.objects.create(
+            school=self.school_b,
+            label="School B holiday",
+            start_date=date(2026, 8, 15),
+            end_date=date(2026, 8, 15),
+            event_type="holiday",
+            created_by=self.admin_b,
+        )
+        self.client.login(username="teacher_a", password="pw12345!")
+        response = self.client.get(reverse("core:calendar_closed_days_json"))
+        self.assertEqual(response.status_code, 200)
+        labels = {d["label"] for d in response.json()["closed_days"]}
+        self.assertEqual(labels, {"School A holiday"})
+
+    def test_guardian_can_fetch_closed_days_json(self):
+        SchoolCalendarEvent.objects.create(
+            school=self.school_a,
+            label="Holiday",
+            start_date=date(2026, 8, 15),
+            end_date=date(2026, 8, 15),
+            created_by=self.admin_a,
+        )
+        self.client.login(username="guardian_a", password="pw12345!")
+        response = self.client.get(reverse("core:calendar_closed_days_json"))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.json()["closed_days"]), 1)
+
+    def test_closed_days_json_date_range_does_not_leak_across_years(self):
+        SchoolCalendarEvent.objects.create(
+            school=self.school_a,
+            label="2026 break",
+            start_date=date(2026, 12, 20),
+            end_date=date(2027, 1, 5),
+            created_by=self.admin_a,
+        )
+        self.client.login(username="teacher_a", password="pw12345!")
+        response = self.client.get(reverse("core:calendar_closed_days_json"))
+        data = response.json()["closed_days"][0]
+        # A date-range check for a year before this event correctly
+        # falls outside [start, end] — no recurring-event logic means
+        # last year's dates are never accidentally covered.
+        self.assertFalse(data["start"] <= "2025-12-22" <= data["end"])
+        self.assertTrue(data["start"] <= "2026-12-22" <= data["end"])
+
+    def test_homework_form_due_date_has_warning_attribute(self):
+        self.client.login(username="admin_a", password="pw12345!")
+        response = self.client.get(reverse("core:homework_new"))
+        self.assertContains(response, "data-warn-closed-days")
+        # Not "calendar-warnings.js" verbatim — WhiteNoise's manifest
+        # storage inserts a content hash before the extension in
+        # production-like test runs (e.g. calendar-warnings.abcd1234.js).
+        self.assertContains(response, "calendar-warnings")

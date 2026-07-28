@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% load static %}
 
 {% block title %}{% if homework %}Edit Homework{% else %}New Homework{% endif %} — Notipa{% endblock %}
 
@@ -56,4 +57,7 @@
     </div>
   </form>
 </div>
+
+<script>window.NOTIPA_CLOSED_DAYS_URL = "{% url 'core:calendar_closed_days_json' %}";</script>
+<script src="{% static 'core/js/calendar-warnings.js' %}"></script>
 {% endblock %}

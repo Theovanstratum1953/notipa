@@ -612,3 +612,68 @@ class StudentRecord(UUIDModel):
 
     def __str__(self):
         return f"{self.title} — {self.student}"
+
+
+class SchoolCalendarEvent(UUIDModel):
+    """
+    A closed day (or range of closed days) for a school — public
+    holidays, in-service days, school-declared breaks. Deliberately a
+    calendar of *exceptions*, not a full scheduling system: no
+    timetables, no period-by-period class schedules, and — first
+    version — no recurring-event logic ("every Saturday"), since public
+    holidays don't fall on a fixed weekly pattern anyway. Each closed
+    day or range is entered explicitly, once, by an admin.
+
+    A single-day event sets start_date and end_date to the same date;
+    a range (e.g. a two-week break) is one row rather than one row per
+    day, which is also what makes "paste a date range" a non-feature —
+    the range picker on the form already covers it.
+
+    Read by two very different call sites: the admin management screen
+    (core.views.calendar_list for an ADMIN) and the soft-warning check
+    on every due-date picker elsewhere in the app (homework due dates,
+    fee notice due dates, permission slip response deadlines) via
+    core.views.calendar_closed_days_json. Both read the same rows —
+    "one calendar data source instead of two" is the point, so a
+    future report-card term-dates feature has somewhere to hang off of
+    too, without this model needing to change shape for that.
+    """
+
+    class EventType(models.TextChoices):
+        HOLIDAY = "holiday", "Public holiday"
+        IN_SERVICE = "in_service", "In-service day (no students)"
+        OTHER = "other", "Other closed day"
+
+    school = models.ForeignKey(
+        School, on_delete=models.CASCADE, related_name="calendar_events"
+    )
+    label = models.CharField(max_length=255, help_text="e.g. 'Independence Day' or 'Term 1 break'")
+    start_date = models.DateField()
+    end_date = models.DateField(
+        help_text="Same as start date for a single closed day."
+    )
+    event_type = models.CharField(
+        max_length=10, choices=EventType.choices, default=EventType.OTHER
+    )
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name="calendar_events_created",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["start_date"]
+        indexes = [
+            models.Index(fields=["school", "start_date", "end_date"]),
+        ]
+
+    def clean(self):
+        if self.end_date and self.start_date and self.end_date < self.start_date:
+            raise ValidationError("End date can't be before the start date.")
+
+    def __str__(self):
+        if self.start_date == self.end_date:
+            return f"{self.label} ({self.start_date}) — {self.school}"
+        return f"{self.label} ({self.start_date} – {self.end_date}) — {self.school}"

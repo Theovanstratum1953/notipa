@@ -11,6 +11,7 @@ from .models import (
     PermissionSlip,
     PermissionSlipResponse,
     School,
+    SchoolCalendarEvent,
     SchoolClass,
     SchoolMembership,
     Student,
@@ -161,3 +162,11 @@ class StudentRecordAdmin(admin.ModelAdmin):
     list_filter = ("school", "visible_to_guardians")
     search_fields = ("title", "body", "student__first_name", "student__last_name")
     autocomplete_fields = ["school", "student", "author"]
+
+
+@admin.register(SchoolCalendarEvent)
+class SchoolCalendarEventAdmin(admin.ModelAdmin):
+    list_display = ("label", "school", "start_date", "end_date", "event_type", "created_by")
+    list_filter = ("school", "event_type")
+    search_fields = ("label",)
+    autocomplete_fields = ["school", "created_by"]

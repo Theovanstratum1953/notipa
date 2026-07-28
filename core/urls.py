@@ -111,4 +111,13 @@ urlpatterns = [
     path("classes/<uuid:pk>/archive/", views.class_archive, name="class_archive"),
     path("classes/<uuid:pk>/restore/", views.class_restore, name="class_restore"),
     path("settings/", views.school_settings, name="settings"),
+    path("calendar/", views.calendar_list, name="calendar"),
+    path("calendar/new/", views.calendar_new, name="calendar_new"),
+    path("calendar/<uuid:pk>/edit/", views.calendar_edit, name="calendar_edit"),
+    path("calendar/<uuid:pk>/delete/", views.calendar_delete, name="calendar_delete"),
+    path(
+        "calendar/closed-days.json",
+        views.calendar_closed_days_json,
+        name="calendar_closed_days_json",
+    ),
 ]
