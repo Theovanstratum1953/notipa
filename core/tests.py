@@ -10,6 +10,8 @@ from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
+from .forms import SchoolClassForm
+from .messaging import class_messaging_effectively_enabled, thread_messaging_enabled
 from .models import (
     Announcement,
     AnnouncementRead,
@@ -3125,12 +3127,18 @@ class MessagingTests(TestCase):
         school = School.objects.create(name="Fresh school", country="PH")
         self.assertFalse(school.messaging_enabled)
 
-    def test_inbox_blocked_when_messaging_disabled(self):
+    def test_inbox_still_accessible_when_messaging_disabled(self):
+        """The inbox itself isn't gated on the switch (proposal:
+        'Per-School Messaging On/Off Switch' — existing threads stay
+        readable) — only new threads/messages are blocked. Confirmed
+        properly (with an actual existing thread, still listed) in
+        MessagingToggleTests; this just checks the page doesn't 404 or
+        redirect a guardian away from their own history."""
         self.school_a.messaging_enabled = False
         self.school_a.save(update_fields=["messaging_enabled"])
         self.client.login(username="guardian_a", password="pw12345!")
         response = self.client.get(reverse("core:messages"))
-        self.assertRedirects(response, reverse("core:dashboard"))
+        self.assertEqual(response.status_code, 200)
 
     def test_thread_start_blocked_when_messaging_disabled(self):
         self.school_a.messaging_enabled = False
@@ -3531,13 +3539,18 @@ class ClassMessagingTests(TestCase):
         response = self.client.get(reverse("core:message_thread_detail", args=[thread.pk]))
         self.assertEqual(response.status_code, 404)
 
-    def test_thread_inaccessible_when_messaging_turned_off(self):
+    def test_thread_still_viewable_read_only_when_messaging_turned_off(self):
+        """Proposal: 'Per-School Messaging On/Off Switch' — turning
+        messaging off doesn't hide or delete an existing thread, it
+        becomes read-only. Posting-blocked behavior is covered by
+        MessagingToggleTests; this just confirms the participant can
+        still open and read it."""
         thread = self._class_thread()
         self.school.messaging_enabled = False
         self.school.save()
         self.client.login(username="guardian_a", password="pw12345!")
         response = self.client.get(reverse("core:message_thread_detail", args=[thread.pk]))
-        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.status_code, 200)
 
     def test_admin_has_no_class_thread_access(self):
         thread = self._class_thread()
@@ -3716,3 +3729,300 @@ class ClassMessagingTests(TestCase):
         self.client.login(username="guardian_z", password="pw12345!")
         response = self.client.get(reverse("core:messages"))
         self.assertEqual(len(response.context["threads"]), 0)
+
+
+class MessagingToggleTests(TestCase):
+    """
+    Covers the Per-School Messaging On/Off Switch: SchoolClass.
+    messaging_enabled (the teacher-level override, opt-out, default
+    True), core.messaging.class_messaging_effectively_enabled/
+    thread_messaging_enabled ("no partial state" — a class switch only
+    means something once the school switch is on), and the "clean
+    disable, not deletion" rule — new threads/messages are blocked at
+    the permission layer, but an existing thread stays viewable
+    read-only rather than disappearing.
+    """
+
+    def setUp(self):
+        self.school = School.objects.create(
+            name="School A", country="PH", messaging_enabled=True
+        )
+        self.admin = User.objects.create_user(username="admin_a", password="pw12345!")
+        SchoolMembership.objects.create(
+            user=self.admin, school=self.school, role=SchoolMembership.Role.ADMIN
+        )
+        self.teacher_user = User.objects.create_user(username="teacher_a", password="pw12345!")
+        self.teacher_membership = SchoolMembership.objects.create(
+            user=self.teacher_user, school=self.school, role=SchoolMembership.Role.TEACHER
+        )
+        self.guardian_user = User.objects.create_user(username="guardian_a", password="pw12345!")
+        SchoolMembership.objects.create(
+            user=self.guardian_user, school=self.school, role=SchoolMembership.Role.GUARDIAN
+        )
+        self.class_a = SchoolClass.objects.create(
+            school=self.school,
+            name="Grade 4 - Sampaguita",
+            academic_year="2026-2027",
+            homeroom_teacher=self.teacher_membership,
+        )
+        self.student = Student.objects.create(
+            school=self.school, school_class=self.class_a, first_name="Ana", last_name="Reyes"
+        )
+        GuardianLink.objects.create(guardian=self.guardian_user, student=self.student)
+
+    # -- model default -----------------------------------------------------
+
+    def test_class_messaging_enabled_defaults_true(self):
+        klass = SchoolClass.objects.create(
+            school=self.school, name="Grade 5", academic_year="2026-2027"
+        )
+        self.assertTrue(klass.messaging_enabled)
+
+    # -- effective-enabled helpers -------------------------------------------
+
+    def test_effectively_enabled_when_both_switches_on(self):
+        self.assertTrue(class_messaging_effectively_enabled(self.class_a))
+
+    def test_not_effectively_enabled_when_school_off(self):
+        self.school.messaging_enabled = False
+        self.school.save()
+        self.class_a.refresh_from_db()
+        self.assertTrue(self.class_a.messaging_enabled)  # class flag itself untouched
+        self.assertFalse(class_messaging_effectively_enabled(self.class_a))
+
+    def test_not_effectively_enabled_when_class_opts_out(self):
+        self.class_a.messaging_enabled = False
+        self.class_a.save()
+        self.assertFalse(class_messaging_effectively_enabled(self.class_a))
+
+    def test_not_effectively_enabled_for_no_class(self):
+        self.assertFalse(class_messaging_effectively_enabled(None))
+
+    def test_thread_messaging_enabled_for_class_thread(self):
+        thread_pk = MessageThread.objects.get(
+            thread_type=MessageThread.ThreadType.CLASS, school_class=self.class_a
+        ).pk
+        self.assertTrue(
+            thread_messaging_enabled(MessageThread.objects.get(pk=thread_pk))
+        )
+        self.class_a.messaging_enabled = False
+        self.class_a.save()
+        # Re-fetched fresh, not reusing the same Python object above — a
+        # ForeignKey access caches the related row on that instance, which
+        # would otherwise mask the update we just made via a different
+        # (self.class_a) object, something a real request never does since
+        # every view builds its thread object fresh from the database.
+        self.assertFalse(
+            thread_messaging_enabled(MessageThread.objects.get(pk=thread_pk))
+        )
+
+    def test_thread_messaging_enabled_for_one_to_one_thread_follows_students_class(self):
+        thread = MessageThread.objects.create(
+            school=self.school,
+            student=self.student,
+            guardian=self.guardian_user,
+            teacher=self.teacher_user,
+        )
+        self.assertTrue(thread_messaging_enabled(thread))
+        self.class_a.messaging_enabled = False
+        self.class_a.save()
+        self.assertFalse(thread_messaging_enabled(thread))
+        self.class_a.messaging_enabled = True
+        self.class_a.save()
+        self.school.messaging_enabled = False
+        self.school.save()
+        self.assertFalse(thread_messaging_enabled(thread))
+
+    # -- class thread creation respects the class-level switch ---------------
+
+    def test_class_thread_not_created_when_class_opts_out_before_qualifying(self):
+        klass = SchoolClass.objects.create(
+            school=self.school,
+            name="Grade 5",
+            academic_year="2026-2027",
+            messaging_enabled=False,
+        )
+        Student.objects.create(school=self.school, school_class=klass, first_name="A", last_name="B")
+        self.assertFalse(
+            MessageThread.objects.filter(
+                thread_type=MessageThread.ThreadType.CLASS, school_class=klass
+            ).exists()
+        )
+
+    def test_class_thread_created_once_class_opts_back_in(self):
+        klass = SchoolClass.objects.create(
+            school=self.school,
+            name="Grade 5",
+            academic_year="2026-2027",
+            messaging_enabled=False,
+        )
+        Student.objects.create(school=self.school, school_class=klass, first_name="A", last_name="B")
+        klass.messaging_enabled = True
+        klass.save()
+        self.assertTrue(
+            MessageThread.objects.filter(
+                thread_type=MessageThread.ThreadType.CLASS, school_class=klass
+            ).exists()
+        )
+
+    def test_existing_class_thread_membership_keeps_syncing_after_class_opts_out(self):
+        """Opting a class out doesn't touch its already-existing thread's
+        membership or history — only whether new messages can be posted
+        (core.messaging.sync_class_thread's docstring)."""
+        thread = MessageThread.objects.get(
+            thread_type=MessageThread.ThreadType.CLASS, school_class=self.class_a
+        )
+        self.class_a.messaging_enabled = False
+        self.class_a.save()
+        student2 = Student.objects.create(
+            school=self.school, school_class=self.class_a, first_name="Bea", last_name="Cruz"
+        )
+        other_guardian = User.objects.create_user(username="guardian_b", password="pw12345!")
+        SchoolMembership.objects.create(
+            user=other_guardian, school=self.school, role=SchoolMembership.Role.GUARDIAN
+        )
+        GuardianLink.objects.create(guardian=other_guardian, student=student2)
+        self.assertIn(other_guardian, thread.participants.all())
+
+    # -- new-thread creation blocked -----------------------------------------
+
+    def test_message_thread_start_blocked_when_class_opts_out(self):
+        self.class_a.messaging_enabled = False
+        self.class_a.save()
+        self.client.login(username="guardian_a", password="pw12345!")
+        response = self.client.get(
+            reverse("core:message_thread_start", args=[self.student.pk, self.teacher_user.pk])
+        )
+        self.assertEqual(response.status_code, 404)
+
+    # -- existing threads stay read-only, not hidden -------------------------
+
+    def test_class_thread_viewable_but_not_postable_when_class_opts_out(self):
+        thread = MessageThread.objects.get(
+            thread_type=MessageThread.ThreadType.CLASS, school_class=self.class_a
+        )
+        self.class_a.messaging_enabled = False
+        self.class_a.save()
+        self.client.login(username="guardian_a", password="pw12345!")
+        response = self.client.get(reverse("core:message_thread_detail", args=[thread.pk]))
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.context["can_post"])
+
+        response = self.client.post(
+            reverse("core:message_thread_detail", args=[thread.pk]), {"body": "Hello?"}
+        )
+        self.assertRedirects(response, reverse("core:message_thread_detail", args=[thread.pk]))
+        self.assertFalse(Message.objects.filter(thread=thread, body="Hello?").exists())
+
+    def test_one_to_one_thread_viewable_but_not_postable_when_school_off(self):
+        thread = MessageThread.objects.create(
+            school=self.school,
+            student=self.student,
+            guardian=self.guardian_user,
+            teacher=self.teacher_user,
+        )
+        Message.objects.create(thread=thread, sender=self.guardian_user, body="Earlier message")
+        self.school.messaging_enabled = False
+        self.school.save()
+
+        self.client.login(username="guardian_a", password="pw12345!")
+        response = self.client.get(reverse("core:message_thread_detail", args=[thread.pk]))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Earlier message")
+        self.assertFalse(response.context["can_post"])
+
+        response = self.client.post(
+            reverse("core:message_thread_detail", args=[thread.pk]), {"body": "New message"}
+        )
+        self.assertFalse(Message.objects.filter(thread=thread, body="New message").exists())
+
+    def test_inbox_lists_existing_threads_when_school_off(self):
+        thread = MessageThread.objects.create(
+            school=self.school,
+            student=self.student,
+            guardian=self.guardian_user,
+            teacher=self.teacher_user,
+        )
+        self.school.messaging_enabled = False
+        self.school.save()
+        self.client.login(username="guardian_a", password="pw12345!")
+        response = self.client.get(reverse("core:messages"))
+        self.assertEqual(response.status_code, 200)
+        thread_ids = {t.pk for t in response.context["threads"]}
+        self.assertIn(thread.pk, thread_ids)
+        self.assertFalse(response.context["messaging_enabled"])
+
+    # -- moderation isn't blocked by the switch ------------------------------
+
+    def test_teacher_can_still_remove_message_when_messaging_off(self):
+        thread = MessageThread.objects.get(
+            thread_type=MessageThread.ThreadType.CLASS, school_class=self.class_a
+        )
+        message = Message.objects.create(thread=thread, sender=self.guardian_user, body="Hi")
+        self.school.messaging_enabled = False
+        self.school.save()
+        self.client.login(username="teacher_a", password="pw12345!")
+        response = self.client.post(
+            reverse("core:class_message_remove", args=[thread.pk, message.pk])
+        )
+        self.assertRedirects(response, reverse("core:message_thread_detail", args=[thread.pk]))
+        message.refresh_from_db()
+        self.assertIsNotNone(message.removed_at)
+
+    # -- entry points hidden, not just the composer --------------------------
+
+    def test_class_group_chat_button_hidden_on_class_detail_when_class_opts_out(self):
+        self.class_a.messaging_enabled = False
+        self.class_a.save()
+        self.client.login(username="teacher_a", password="pw12345!")
+        response = self.client.get(reverse("core:class_detail", args=[self.class_a.pk]))
+        self.assertIsNone(response.context["class_thread"])
+
+    def test_message_button_hidden_on_my_child_detail_when_class_opts_out(self):
+        self.class_a.messaging_enabled = False
+        self.class_a.save()
+        self.client.login(username="guardian_a", password="pw12345!")
+        response = self.client.get(reverse("core:my_child_detail", args=[self.student.pk]))
+        self.assertEqual(list(response.context["connected_teachers"]), [])
+        self.assertIsNone(response.context["class_thread"])
+
+    # -- no partial state: the per-class field only exists on the form -------
+    # once the school switch is on ------------------------------------------
+
+    def test_class_form_has_no_messaging_field_when_school_off(self):
+        self.school.messaging_enabled = False
+        self.school.save()
+        form = SchoolClassForm(school=self.school)
+        self.assertNotIn("messaging_enabled", form.fields)
+
+    def test_class_form_has_messaging_field_when_school_on(self):
+        form = SchoolClassForm(school=self.school)
+        self.assertIn("messaging_enabled", form.fields)
+
+    def test_posting_messaging_field_while_school_off_has_no_effect(self):
+        """Even if someone POSTs messaging_enabled=on directly while the
+        school switch is off, there's no bound field to receive it —
+        the class keeps its existing value untouched."""
+        self.school.messaging_enabled = False
+        self.school.save()
+        self.class_a.messaging_enabled = False
+        self.class_a.save()
+        self.client.login(username="admin_a", password="pw12345!")
+        self.client.post(
+            reverse("core:class_edit", args=[self.class_a.pk]),
+            {
+                "name": self.class_a.name,
+                "academic_year": self.class_a.academic_year,
+                "homeroom_teacher": self.teacher_membership.pk,
+                "messaging_enabled": "on",
+            },
+        )
+        self.class_a.refresh_from_db()
+        self.assertFalse(self.class_a.messaging_enabled)
+
+    # -- settings form copy ---------------------------------------------------
+
+    def test_school_settings_page_explains_messaging_commitment(self):
+        self.client.login(username="admin_a", password="pw12345!")
+        response = self.client.get(reverse("core:settings"))
+        self.assertContains(response, "real commitment")

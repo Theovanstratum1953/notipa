@@ -26,7 +26,11 @@ from .forms import (
     TeacherEditForm,
     TeacherForm,
 )
-from .messaging import _teacher_ids_for_class
+from .messaging import (
+    _teacher_ids_for_class,
+    class_messaging_effectively_enabled,
+    thread_messaging_enabled,
+)
 from .models import (
     Announcement,
     AnnouncementRead,
@@ -162,11 +166,17 @@ def my_child_detail(request, pk):
     # Homeroom + co-teachers of this child's class — the people a
     # "Message" button on this page is allowed to reach, per
     # message_thread_start's own connection check. Empty (and the
-    # template hides the section entirely) if the school hasn't turned
-    # messaging on, or the child has no class assigned yet.
+    # template hides the section entirely) if messaging isn't
+    # effectively enabled (school switch off, or this specific class has
+    # opted out — core.messaging.class_messaging_effectively_enabled),
+    # or the child has no class assigned yet. These are the "start a
+    # conversation" entry points the proposal says should be hidden when
+    # off — an already-existing thread stays reachable read-only via the
+    # Messages inbox regardless (core.views.messages_inbox), which isn't
+    # gated on this at all.
     connected_teachers = []
     class_thread = None
-    if request.school.messaging_enabled and student.school_class_id:
+    if class_messaging_effectively_enabled(student.school_class):
         connected_teachers = list(
             User.objects.filter(id__in=_connected_teacher_ids_for_student(student)).order_by(
                 "last_name", "first_name"
@@ -1245,10 +1255,17 @@ def calendar_closed_days_json(request):
 # ---------------------------------------------------------------------
 # Messaging — a private, one-to-one thread between a guardian and their
 # child's teacher, scoped to the shared student. Off by default per
-# school (School.messaging_enabled, set from Admin > Settings): every
-# view below re-checks that flag server-side rather than only hiding
-# the entry points in a template, the same "never just hidden in the
-# UI" posture the rest of this app's permission layer uses.
+# school (School.messaging_enabled, set from Admin > Settings) and,
+# underneath that, opt-out per class (SchoolClass.messaging_enabled —
+# proposal: "Per-School Messaging On/Off Switch"). Every thread-creating
+# and thread-posting view below re-checks core.messaging.
+# class_messaging_effectively_enabled / thread_messaging_enabled
+# server-side rather than only hiding the entry points in a template,
+# the same "never just hidden in the UI" posture the rest of this app's
+# permission layer uses. Viewing an already-existing thread is
+# deliberately *not* gated on either switch — turning messaging off
+# doesn't delete history, only stops new threads/messages (see
+# message_thread_detail's docstring).
 #
 # A thread can only ever be started between a guardian actually linked
 # to a student (GuardianLink) and a teacher actually teaching that
@@ -1300,12 +1317,18 @@ def messages_inbox(request):
     sent_at against this user's own MessageThreadRead.last_read_at
     instead. A removed message never counts as unread either way — there's
     nothing new to read in a placeholder.
+
+    Deliberately not gated on request.school.messaging_enabled (unlike
+    message_thread_start/message_thread_detail's composer): this is the
+    inbox, the one place "existing threads are preserved, not deleted,
+    but become read-only" (proposal: "Per-School Messaging On/Off
+    Switch") is actually meant to be seen. Turning messaging off hides
+    the sidebar link to this page (templates/base.html) and blocks new
+    threads/messages, but doesn't take away a user's ability to read
+    their own history if they land here directly.
     """
     if request.school is None:
         messages.error(request, "You need to be linked to a school to see messages.")
-        return redirect("core:dashboard")
-    if not request.school.messaging_enabled:
-        messages.error(request, "Messaging isn't turned on for this school yet.")
         return redirect("core:dashboard")
     if request.membership.role not in (
         SchoolMembership.Role.GUARDIAN,
@@ -1349,7 +1372,11 @@ def messages_inbox(request):
                 1 for m in thread_messages if m.sender_id != request.user.id and m.read_at is None
             )
 
-    return render(request, "core/messages_inbox.html", {"threads": threads})
+    return render(
+        request,
+        "core/messages_inbox.html",
+        {"threads": threads, "messaging_enabled": request.school.messaging_enabled},
+    )
 
 
 @login_required
@@ -1362,8 +1389,15 @@ def message_thread_start(request, student_pk, other_user_pk):
     session/data relationships" posture as permission_slip_respond and
     homework_submit — rather than trusting that a pair of ids in the
     URL is one this user was actually shown a "Message" button for.
+
+    Also re-checks class_messaging_effectively_enabled for the student's
+    class server-side, not just the school flag — a disabled school or a
+    class that's opted out both block *new* one-to-one threads the same
+    way they block new class threads, even though an existing thread
+    between the same two people stays readable (core.views.
+    message_thread_detail doesn't 404 on this).
     """
-    if request.school is None or not request.school.messaging_enabled:
+    if request.school is None:
         raise Http404
     if request.membership.role not in (
         SchoolMembership.Role.GUARDIAN,
@@ -1372,6 +1406,8 @@ def message_thread_start(request, student_pk, other_user_pk):
         raise Http404
 
     student = get_object_or_404(Student.objects.filter(school=request.school), pk=student_pk)
+    if not class_messaging_effectively_enabled(student.school_class):
+        raise Http404
 
     if request.membership.role == SchoolMembership.Role.GUARDIAN:
         guardian_id = request.user.id
@@ -1444,15 +1480,32 @@ def message_thread_detail(request, pk):
     instead upserts this user's own MessageThreadRead row, since there's
     no single "the other reader" to stamp a message with once a thread
     can have many.
+
+    Viewing is deliberately not gated on the messaging on/off switches
+    at all (proposal: "Per-School Messaging On/Off Switch" — "existing
+    threads are preserved, not deleted, but become read-only"): a
+    participant can always open a thread they're already in, only the
+    composer is conditional. thread_messaging_enabled decides whether
+    the switches themselves currently allow posting; can_post folds that
+    together with the pre-existing announcements_only rule, so the
+    template only has to check one flag either way.
     """
-    if request.school is None or not request.school.messaging_enabled:
+    if request.school is None:
         raise Http404
     thread = _get_message_thread_or_404(request, pk)
     is_class = thread.thread_type == MessageThread.ThreadType.CLASS
     is_teacher = request.membership.role == SchoolMembership.Role.TEACHER
-    can_post = not (is_class and thread.announcements_only and not is_teacher)
+    messaging_on = thread_messaging_enabled(thread)
+    can_post = messaging_on and not (is_class and thread.announcements_only and not is_teacher)
 
     if request.method == "POST":
+        if not messaging_on:
+            messages.error(
+                request,
+                "Messaging is currently turned off — this conversation is read-only "
+                "until it's turned back on.",
+            )
+            return redirect("core:message_thread_detail", pk=thread.pk)
         if not can_post:
             messages.error(
                 request, "This thread is announcements only — only the teacher can post."
@@ -1498,6 +1551,7 @@ def message_thread_detail(request, pk):
             "participants": participants,
             "is_class": is_class,
             "can_post": can_post,
+            "messaging_on": messaging_on,
             "can_moderate": is_class and is_teacher,
         },
     )
@@ -1523,8 +1577,13 @@ def class_message_remove(request, pk, message_pk):
     thread_type — a one-to-one thread has no moderation feature, so this
     can't be used against one even if a class-thread message_pk-shaped
     URL were guessed against it.
+
+    Not gated on thread_messaging_enabled — moderating (cleaning up)
+    history that's currently read-only is still useful, and doesn't let
+    anyone post, so there's no reason to also block it while the
+    on/off switch is off.
     """
-    if request.school is None or not request.school.messaging_enabled:
+    if request.school is None:
         raise Http404
     thread = _get_message_thread_or_404(request, pk)
     if thread.thread_type != MessageThread.ThreadType.CLASS:
@@ -1549,7 +1608,7 @@ def class_thread_toggle_announcements_only(request, pk):
     that don't suit open two-way chat. A plain toggle, not a form:
     there's exactly one bit to flip and no other field involved.
     """
-    if request.school is None or not request.school.messaging_enabled:
+    if request.school is None:
         raise Http404
     thread = _get_message_thread_or_404(request, pk)
     if thread.thread_type != MessageThread.ThreadType.CLASS:
@@ -1875,13 +1934,17 @@ def class_detail(request, pk):
     # viewing the same page doesn't get a link, since class messaging is
     # scoped to teacher + guardians only (proposal: "Class Group
     # Messaging"), the same way admins don't appear in
-    # _teacher_ids_for_class at all.
+    # _teacher_ids_for_class at all. Gated on effective-enabled (school
+    # switch AND this class's own switch), not just the school switch —
+    # this is a "start/open a conversation" entry point, which the
+    # per-school/per-class switch proposal says to hide when either is
+    # off; an already-existing thread stays reachable read-only via the
+    # Messages inbox regardless.
     class_thread = None
     if (
-        request.school
-        and request.school.messaging_enabled
-        and request.membership.role == SchoolMembership.Role.TEACHER
+        request.membership.role == SchoolMembership.Role.TEACHER
         and request.user.id in _teacher_ids_for_class(school_class)
+        and class_messaging_effectively_enabled(school_class)
     ):
         class_thread = MessageThread.objects.filter(
             school=request.school,
@@ -2035,11 +2098,10 @@ def student_detail(request, pk):
     # button that 404s the moment they click it; message_thread_start
     # re-checks this same connection server-side regardless.
     can_message = bool(
-        request.school
-        and request.school.messaging_enabled
-        and request.membership
+        request.membership
         and request.membership.role == SchoolMembership.Role.TEACHER
         and request.user.id in _connected_teacher_ids_for_student(student)
+        and class_messaging_effectively_enabled(student.school_class)
     )
     return render(
         request,

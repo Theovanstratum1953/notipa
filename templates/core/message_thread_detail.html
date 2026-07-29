@@ -18,6 +18,7 @@
       {% else %}
         Re: {{ thread.student.first_name }} {{ thread.student.last_name }}
       {% endif %}
+      {% if not messaging_on %} · <span class="tag tag--neutral"><span class="tag__eyelet"></span>Read only</span>{% endif %}
     </p>
   </div>
   {% if can_moderate %}
@@ -78,6 +79,10 @@
       <button type="submit" class="btn btn--primary">Send</button>
     </div>
   </form>
+</div>
+{% elif not messaging_on %}
+<div class="card card--pad-lg" style="max-width: 640px;">
+  <p class="text-dim" style="margin:0;">Messaging is currently turned off — this conversation is read-only. Nothing here has been deleted; new messages can be sent again once it's turned back on.</p>
 </div>
 {% else %}
 <div class="card card--pad-lg" style="max-width: 640px;">

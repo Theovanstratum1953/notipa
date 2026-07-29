@@ -15,6 +15,12 @@
   </div>
 </div>
 
+{% if not messaging_enabled %}
+<div class="card card--pad-lg" style="margin-bottom: 16px;">
+  <p class="text-dim" style="margin:0;">Messaging is currently turned off for {{ request.school.name }}. Anything below is still here to read, but new conversations and new messages can't be started until an admin turns it back on.</p>
+</div>
+{% endif %}
+
 <div class="card">
   <div class="list-group">
     {% for thread in threads %}

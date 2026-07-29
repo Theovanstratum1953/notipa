@@ -58,8 +58,10 @@ class SchoolMembershipAdmin(admin.ModelAdmin):
 
 @admin.register(SchoolClass)
 class SchoolClassAdmin(admin.ModelAdmin):
-    list_display = ("name", "school", "academic_year", "homeroom_teacher", "is_active")
-    list_filter = ("school", "academic_year", "is_active")
+    list_display = (
+        "name", "school", "academic_year", "homeroom_teacher", "messaging_enabled", "is_active",
+    )
+    list_filter = ("school", "academic_year", "messaging_enabled", "is_active")
     search_fields = ("name",)
     autocomplete_fields = ["school", "homeroom_teacher"]
 

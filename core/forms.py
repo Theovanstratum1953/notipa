@@ -113,8 +113,14 @@ class SchoolSettingsForm(forms.ModelForm):
         help_texts = {
             "academic_year_start_month": "Month the academic year starts, 1–12 (e.g. 6 for June).",
             "messaging_enabled": (
-                "Lets guardians and teachers message each other directly, one "
-                "to one, about a shared student. Off by default."
+                "Turns on direct guardian ↔ teacher messaging and class group "
+                "chat for the whole school. This is a real commitment, not "
+                "just a feature flag — someone has to be expected to actually "
+                "read and respond to messages once it's on. Off by default. "
+                "Individual teachers can still opt their own class out from "
+                "that class's own settings once this is on; turning this off "
+                "again doesn't delete any existing conversation, it just "
+                "makes new ones read-only until it's switched back on."
             ),
         }
 
@@ -129,11 +135,22 @@ class SchoolClassForm(forms.ModelForm):
     by the view (never taken from POST data — see core.views.class_new).
     homeroom_teacher is restricted to teachers already at that school, so
     this form can't be used to assign a teacher from another school.
+
+    messaging_enabled — the per-class messaging opt-out (proposal:
+    "Per-School Messaging On/Off Switch" > "Teacher-level override") — is
+    only ever a field on this form at all when the school's own switch
+    is on. When it's off, __init__ removes the field entirely rather
+    than just leaving it out of the template: "no partial state" is
+    enforced here in the permission/data layer, not left to the
+    template to hide, so POSTing the field directly while the school
+    switch is off can't sneak a value through — Django's ModelForm
+    simply ignores POST data for a field that was never added to
+    self.fields; there's no name to bind it to.
     """
 
     class Meta:
         model = SchoolClass
-        fields = ["name", "academic_year", "homeroom_teacher"]
+        fields = ["name", "academic_year", "homeroom_teacher", "messaging_enabled"]
         widgets = {
             "name": forms.TextInput(
                 attrs={"class": "input", "placeholder": "e.g. Grade 4 - Sampaguita"}
@@ -142,6 +159,14 @@ class SchoolClassForm(forms.ModelForm):
                 attrs={"class": "input", "placeholder": "e.g. 2026-2027"}
             ),
             "homeroom_teacher": forms.Select(attrs={"class": "select"}),
+        }
+        help_texts = {
+            "messaging_enabled": (
+                "On by default once the school has messaging turned on — "
+                "uncheck to opt this specific class out of both class group "
+                "chat and guardian ↔ teacher messaging about its students, "
+                "even while the rest of the school has it on."
+            ),
         }
 
     def __init__(self, *args, school=None, **kwargs):
@@ -154,6 +179,10 @@ class SchoolClassForm(forms.ModelForm):
         self.fields["homeroom_teacher"].label_from_instance = (
             lambda m: m.user.get_full_name() or m.user.username
         )
+        if school is None or not school.messaging_enabled:
+            del self.fields["messaging_enabled"]
+        else:
+            self.fields["messaging_enabled"].required = False
 
 
 class StudentForm(forms.ModelForm):

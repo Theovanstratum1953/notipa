@@ -35,6 +35,13 @@
       {{ form.homeroom_teacher }}
       <div class="field__hint">Optional — only teachers already added to this school appear here.</div>
     </div>
+    {% if form.messaging_enabled %}
+    <div class="field" style="display:flex; align-items:center; gap:8px;">
+      {{ form.messaging_enabled }}
+      <label class="field__label" for="{{ form.messaging_enabled.id_for_label }}" style="margin:0;">Messaging for this class</label>
+    </div>
+    <div class="field__hint">{{ form.messaging_enabled.help_text }}</div>
+    {% endif %}
     <div style="display:flex; gap:10px; margin-top: 22px;">
       <button type="submit" class="btn btn--primary">{% if school_class %}Save Changes{% else %}Create Class{% endif %}</button>
       <a href="{% url 'core:classes' %}" class="btn btn--secondary">Cancel</a>

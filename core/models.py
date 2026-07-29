@@ -132,12 +132,19 @@ class School(UUIDModel):
     messaging_enabled = models.BooleanField(
         default=False,
         help_text=(
-            "Turns on direct guardian ↔ teacher messaging for this school. Off "
-            "by default: schools that aren't ready to support real-time parent "
-            "messaging (staffing, moderation, expectations around response "
-            "time) shouldn't have it forced on them. A prerequisite for "
-            "MessageThread/Message below, not just a UI hint — thread-creation "
-            "and thread-viewing views re-check this server-side."
+            "The master switch for direct guardian ↔ teacher messaging and "
+            "class group messaging at this school (proposal: 'Per-School "
+            "Messaging On/Off Switch'). Off by default: schools that aren't "
+            "ready to support real-time parent messaging (staffing, "
+            "moderation, expectations around response time) shouldn't have "
+            "it forced on them. Turning it on is a real commitment — someone "
+            "has to be expected to actually read and respond. A prerequisite "
+            "for MessageThread/Message below, not just a UI hint — "
+            "thread-creation, posting, and (via SchoolClass.messaging_enabled) "
+            "the per-class override are all re-checked server-side, never "
+            "trusted from a hidden button alone. Turning this off doesn't "
+            "delete any existing thread or message — see core.messaging."
+            "thread_messaging_enabled — it only stops new ones."
         ),
     )
     is_active = models.BooleanField(default=True)
@@ -215,6 +222,24 @@ class SchoolClass(UUIDModel):
         related_name="co_taught_classes",
         limit_choices_to={"role": SchoolMembership.Role.TEACHER},
         help_text="Co-teachers beyond the homeroom teacher, if any.",
+    )
+    messaging_enabled = models.BooleanField(
+        default=True,
+        help_text=(
+            "Per-class opt-out for messaging (proposal: 'Per-School Messaging "
+            "On/Off Switch' — the teacher-level override), once the school's "
+            "own School.messaging_enabled switch is on. Defaults True: "
+            "messaging is opt-out at the class level, not opt-in, so a class "
+            "gets it automatically the moment the school does, and a teacher "
+            "who doesn't want it for their own class turns it off "
+            "specifically rather than every class starting off. Meaningless "
+            "while the school switch itself is off — 'no partial state', see "
+            "core.messaging.class_messaging_effectively_enabled, which is "
+            "always what should actually be checked, never this field alone. "
+            "Governs both this class's group thread (Class Group Messaging) "
+            "and any guardian-teacher one-to-one thread about one of its "
+            "students."
+        ),
     )
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)

@@ -14,8 +14,61 @@ every model change that can affect either side of that membership
 additional_teachers M2M, and School.messaging_enabled turning on via
 sync_all_class_threads). Kept in its own module, not core.views, so
 core.signals can import it without importing the whole view layer.
+
+Also home to the "is messaging actually usable right now" helpers
+(proposal: "Per-School Messaging On/Off Switch"): class_messaging_
+effectively_enabled and thread_messaging_enabled. Both live here rather
+than on the models themselves so core.views, core.forms, and this
+module's own sync logic all agree on one definition of "on" — a school
+switch and a class switch, both true, never checked separately or
+inconsistently at different call sites.
 """
 from .models import GuardianLink, MessageThread, SchoolClass, Student
+
+
+def class_messaging_effectively_enabled(school_class):
+    """
+    Whether messaging is actually usable for this class right now — both
+    the school-wide switch and this class's own opt-out have to be on.
+    This is the "no partial state" rule from the proposal: a class's own
+    messaging_enabled is meaningless once the school switch is off, so
+    every call site should use this rather than checking
+    school_class.messaging_enabled on its own.
+
+    Governs both this class's own group thread and any guardian-teacher
+    one-to-one thread about one of its students — see
+    thread_messaging_enabled, which is the per-thread version of this
+    same check.
+    """
+    return bool(
+        school_class
+        and school_class.school.messaging_enabled
+        and school_class.messaging_enabled
+    )
+
+
+def thread_messaging_enabled(thread):
+    """
+    Whether *new* messages can currently be posted into this thread — the
+    school switch, and (if the thread has a connected class) that
+    class's own switch, both have to be on.
+
+    Deliberately does not decide whether the thread can be *viewed* —
+    turning either switch off doesn't hide or delete an existing thread
+    (proposal: "Clean disable, not just hidden... existing threads are
+    preserved, not deleted, but become read-only"); this only backs the
+    composer/moderation-visible decisions in core.views.
+    message_thread_detail, not access to the thread page itself.
+    """
+    if not thread.school.messaging_enabled:
+        return False
+    if thread.thread_type == MessageThread.ThreadType.CLASS:
+        relevant_class = thread.school_class
+    else:
+        relevant_class = thread.student.school_class if thread.student_id else None
+    if relevant_class is not None and not relevant_class.messaging_enabled:
+        return False
+    return True
 
 
 def _guardian_ids_for_class(school_class):
@@ -42,23 +95,38 @@ def _teacher_ids_for_class(school_class):
 def sync_class_thread(school_class):
     """
     Ensures the one CLASS-type MessageThread for `school_class` exists
-    (creating it the first time this runs for a class with at least one
-    active student, once the school has messaging turned on) and that
-    its participants exactly match current enrollment + current teaching
-    staff — added the moment a guardian/teacher gains a connection to
-    the class, removed the moment they lose it.
+    (creating it the first time this runs for a class that's effectively
+    enabled — see class_messaging_effectively_enabled — with at least
+    one active student) and that its participants exactly match current
+    enrollment + current teaching staff — added the moment a
+    guardian/teacher gains a connection to the class, removed the moment
+    they lose it.
+
+    Participant syncing only runs at all while the *school* switch is
+    on — if a school turns messaging off, this is a no-op even for a
+    class whose thread already exists, so an existing thread's
+    participant list simply stops changing until the school switch (and
+    then core.signals' backfill via sync_all_class_threads) brings it
+    current again. The *class*-level switch, by contrast, only gates
+    whether a **new** thread gets created in the first place: once a
+    class's thread exists, sync_class_thread keeps its participants
+    accurate regardless of whether that one class later opts out — only
+    core.messaging.thread_messaging_enabled (checked at the view layer)
+    decides whether it can still be posted into. That split is what
+    makes "read-only, not deleted" from the proposal actually hold:
+    turning a class off doesn't touch its thread's membership or
+    history at all, only new posting.
 
     Idempotent and cheap to call speculatively from a signal on a class
-    that will never qualify: it's a no-op (no thread created) until both
-    preconditions hold (messaging on, at least one active student), and
-    it never deletes the thread once created — even if every student
-    later leaves the class, the thread and its history stay, only
-    participants shrink to (in that case) just the teachers, mirroring
-    the "revoke, don't erase" pattern the rest of this app uses for
-    memberships/classes/students.
+    that will never qualify: it's a no-op (no thread created) until
+    every precondition holds, and it never deletes the thread once
+    created — even if every student later leaves the class, the thread
+    and its history stay, only participants shrink to (in that case)
+    just the teachers, mirroring the "revoke, don't erase" pattern the
+    rest of this app uses for memberships/classes/students.
 
     Returns the thread (existing, newly created, or freshly synced), or
-    None if messaging is off for the school or no thread exists yet and
+    None if messaging is off for the school, or no thread exists yet and
     none is warranted.
     """
     if school_class is None or not school_class.school.messaging_enabled:
@@ -69,6 +137,8 @@ def sync_class_thread(school_class):
     ).first()
 
     if thread is None:
+        if not class_messaging_effectively_enabled(school_class):
+            return None
         has_student = Student.objects.filter(
             school_class=school_class, is_active=True
         ).exists()
@@ -96,7 +166,13 @@ def sync_all_class_threads(school):
     Re-syncs every class in a school — called when
     School.messaging_enabled is switched on, since every class in that
     school may newly qualify for a thread at once (rather than only the
-    next time each one happens to be touched individually).
+    next time each one happens to be touched individually). Also the
+    catch-up mechanism for a class whose own messaging_enabled was
+    turned on while the school switch was already on (core.signals wires
+    SchoolClass's own post_save to sync_class_thread for that specific
+    case), or for repairing drift generally — see the
+    core.management.commands.sync_class_threads command, which just
+    calls this for every messaging-enabled school.
     """
     for school_class in SchoolClass.objects.filter(school=school):
         sync_class_thread(school_class)
