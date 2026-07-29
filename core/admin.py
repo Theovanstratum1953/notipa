@@ -4,6 +4,7 @@ from django.contrib.auth.admin import UserAdmin
 from .models import (
     Announcement,
     AnnouncementRead,
+    AttendanceRecord,
     FeeNotice,
     GuardianLink,
     Homework,
@@ -167,6 +168,14 @@ class StudentRecordAdmin(admin.ModelAdmin):
     list_filter = ("school", "visible_to_guardians")
     search_fields = ("title", "body", "student__first_name", "student__last_name")
     autocomplete_fields = ["school", "student", "author"]
+
+
+@admin.register(AttendanceRecord)
+class AttendanceRecordAdmin(admin.ModelAdmin):
+    list_display = ("student", "school_class", "date", "status", "recorded_by", "last_edited_at")
+    list_filter = ("school_class", "status")
+    search_fields = ("student__first_name", "student__last_name", "school_class__name")
+    autocomplete_fields = ["student", "school_class", "recorded_by"]
 
 
 @admin.register(SchoolCalendarEvent)

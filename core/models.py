@@ -715,6 +715,82 @@ class SchoolCalendarEvent(UUIDModel):
         return f"{self.label} ({self.start_date} – {self.end_date}) — {self.school}"
 
 
+class AttendanceRecord(UUIDModel):
+    """
+    One daily present/absent/late record per student per class — the
+    roadmap's "simple daily roster, not a period-by-period tracker":
+    Notipa has no timetable concept, and this model doesn't introduce
+    one. A teacher takes it once a day for their class; a student's own
+    linked guardians (GuardianLink) can see it, nobody else's family
+    can (enforced in core.views.my_child_attendance the same way
+    my_child_detail already scopes a guardian to their own children).
+
+    school_class is stored alongside student (rather than always
+    resolved through student.school_class) so a record taken today
+    keeps pointing at the class attendance was actually taken for, even
+    if the student is moved to a different class later in the term.
+
+    Editing is gated in the view layer (core.views._can_edit_attendance),
+    not here: a same-day correction (e.g. a student arrived late and was
+    marked absent by mistake) is unrestricted, an older entry needs an
+    admin — keeps the historical record trustworthy without blocking
+    the common case. Closed-day awareness (skipping the roster on
+    holidays/in-service days once core.models.SchoolCalendarEvent has
+    entries) is also a view-layer concern — this model doesn't know or
+    care whether a given date was a school day, it just stores what a
+    teacher actually recorded.
+
+    One row per (student, date): a day can't accidentally end up with
+    two conflicting statuses, and taking attendance again for a date
+    that already has a row updates that row in place rather than
+    creating a duplicate — the same "one current row, not a log of
+    every change" shape as HomeworkSubmission and
+    PermissionSlipResponse.
+
+    Feeds the attendance summary line planned for report cards: a
+    term's present/absent/late totals are computed by aggregating this
+    table over the term's date range, never re-entered by hand.
+    """
+
+    class Status(models.TextChoices):
+        PRESENT = "present", "Present"
+        ABSENT = "absent", "Absent"
+        LATE = "late", "Late"
+
+    student = models.ForeignKey(
+        Student, on_delete=models.CASCADE, related_name="attendance_records"
+    )
+    school_class = models.ForeignKey(
+        SchoolClass, on_delete=models.CASCADE, related_name="attendance_records"
+    )
+    date = models.DateField()
+    status = models.CharField(max_length=10, choices=Status.choices, default=Status.PRESENT)
+    recorded_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name="attendance_records_taken",
+        help_text="The teacher (or admin, for an amended older entry) who last saved this row.",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    last_edited_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-date"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["student", "date"], name="unique_attendance_per_student_day"
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["school_class", "date"]),
+            models.Index(fields=["student", "-date"]),
+        ]
+
+    def __str__(self):
+        return f"{self.student} — {self.date} ({self.get_status_display()})"
+
+
 class MessageThread(UUIDModel):
     """
     A conversation that shares the Message model below in one of two

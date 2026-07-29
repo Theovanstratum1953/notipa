@@ -1,3 +1,5 @@
+from datetime import date, timedelta
+
 from django.conf import settings as django_settings
 from django.contrib import messages
 from django.contrib.auth import get_user_model
@@ -5,6 +7,7 @@ from django.contrib.auth.decorators import login_required
 from django.db.models import Count, Q
 from django.http import Http404, HttpResponseRedirect, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
@@ -34,6 +37,7 @@ from .messaging import (
 from .models import (
     Announcement,
     AnnouncementRead,
+    AttendanceRecord,
     FeeNotice,
     GuardianLink,
     Homework,
@@ -193,6 +197,11 @@ def my_child_detail(request, pk):
             school_class_id=student.school_class_id,
             participants=request.user,
         ).first()
+    # Recent attendance (roadmap: Attendance Tracking) — this guardian's
+    # own child only, same GuardianLink scoping as everything else on
+    # this page; the full history lives on my_child_attendance.
+    attendance_records = AttendanceRecord.objects.filter(student=student).order_by("-date")[:5]
+
     return render(
         request,
         "core/my_child_detail.html",
@@ -205,6 +214,7 @@ def my_child_detail(request, pk):
             "permission_slip_responses": permission_slip_responses,
             "connected_teachers": connected_teachers,
             "class_thread": class_thread,
+            "attendance_records": attendance_records,
         },
     )
 
@@ -1253,6 +1263,244 @@ def calendar_closed_days_json(request):
 
 
 # ---------------------------------------------------------------------
+# Attendance — a daily present/absent/late record per student per class
+# (roadmap: Attendance Tracking). Deliberately a simple daily roster,
+# not a period-by-period tracker: Notipa has no timetable concept, and
+# this section doesn't introduce one. Any teacher/admin at the school
+# can take or view any class's roster — the same deliberately
+# permissive "any teacher can see any class" posture class_detail
+# already uses, rather than restricting each teacher to only their own
+# homeroom. A guardian only ever reaches their own child's history
+# (my_child_attendance), never a class-level view — see that view's
+# docstring for how that's enforced.
+# ---------------------------------------------------------------------
+
+def _can_edit_attendance(request, record_date):
+    """
+    Same-day edits are unrestricted for any teacher/admin at the
+    school; edits to an older date require the requesting user to be a
+    school admin. This is the "editable within a window" rule from the
+    roadmap: a teacher can fix a same-day mistake (a student arrived
+    late and was marked absent) freely, but the historical record
+    beyond today needs an admin to amend, so it isn't casually rewritten
+    after the fact.
+    """
+    if record_date >= timezone.localdate():
+        return True
+    return request.membership is not None and request.membership.role == SchoolMembership.Role.ADMIN
+
+
+def _closed_day_for(school, on_date):
+    """The SchoolCalendarEvent covering on_date at this school, if any —
+    used to show a "school is closed" note on the roster (roadmap:
+    "closed-day awareness ... skip holidays automatically") rather than
+    to block anything: a school can still record something for a
+    closed day if it genuinely needs to, this is just a heads-up."""
+    return SchoolCalendarEvent.objects.filter(
+        school=school, start_date__lte=on_date, end_date__gte=on_date
+    ).first()
+
+
+@login_required
+@role_required(SchoolMembership.Role.ADMIN, SchoolMembership.Role.TEACHER)
+def attendance_classes_list(request):
+    """
+    Landing page for Attendance: every active class at the school, each
+    flagged with whether today's roster has already been taken — the
+    roadmap's "visible 'not yet taken today' indicator" at the
+    all-classes level, for a teacher or admin who teaches/oversees more
+    than one class. class_detail shows the same indicator for a single
+    class already viewed.
+    """
+    today = timezone.localdate()
+    classes = list(
+        scope_to_school(SchoolClass.objects.filter(is_active=True), request).order_by("name")
+    )
+    taken_class_ids = set(
+        AttendanceRecord.objects.filter(school_class__in=classes, date=today)
+        .values_list("school_class_id", flat=True)
+        .distinct()
+    )
+    for school_class in classes:
+        school_class.attendance_taken_today = school_class.id in taken_class_ids
+
+    return render(
+        request, "core/attendance_classes_list.html", {"classes": classes, "today": today}
+    )
+
+
+@login_required
+@role_required(SchoolMembership.Role.ADMIN, SchoolMembership.Role.TEACHER)
+def attendance_roster(request, pk):
+    """
+    One-screen daily roster for a single class/day: every active
+    student defaults to present, with a quick control to mark absent or
+    late instead — "a fast checklist, not a form per student" (roadmap).
+    Saving upserts one AttendanceRecord per student for the date (the
+    model's unique constraint), so retaking an already-taken day updates
+    it in place rather than creating duplicates.
+
+    Date is driven by a ?date= query param plus prev/next-day links
+    rather than a separate page per day, and defaults to today
+    (school-local). A future date isn't allowed — attendance is taken
+    for a day that's happening or has happened, not in advance.
+    Whether the date is actually editable by *this* request is decided
+    by _can_edit_attendance; if not, the roster still renders read-only
+    rather than 404ing, so a teacher can still look back at an older day
+    even if only an admin can change it.
+    """
+    school_class = _get_class_or_404(request, pk)
+    today = timezone.localdate()
+
+    date_param = request.GET.get("date")
+    try:
+        roster_date = date.fromisoformat(date_param) if date_param else today
+    except ValueError:
+        roster_date = today
+    if roster_date > today:
+        messages.error(request, "You can't take attendance for a future date.")
+        return redirect("core:attendance_roster", pk=pk)
+
+    can_edit = _can_edit_attendance(request, roster_date)
+    closed_event = _closed_day_for(school_class.school, roster_date)
+
+    students = list(school_class.students.filter(is_active=True).order_by("last_name", "first_name"))
+    existing_by_student_id = {
+        r.student_id: r
+        for r in AttendanceRecord.objects.filter(school_class=school_class, date=roster_date)
+    }
+
+    if request.method == "POST":
+        if not can_edit:
+            return render(request, "core/no_access.html", status=403)
+        for student in students:
+            status = request.POST.get(f"status-{student.id}")
+            if status not in AttendanceRecord.Status.values:
+                continue
+            AttendanceRecord.objects.update_or_create(
+                student=student,
+                date=roster_date,
+                defaults={
+                    "school_class": school_class,
+                    "status": status,
+                    "recorded_by": request.user,
+                },
+            )
+        messages.success(request, f"Attendance saved for {roster_date:%B %-d, %Y}.")
+        return redirect(f"{reverse('core:attendance_roster', args=[pk])}?date={roster_date.isoformat()}")
+
+    roster = [
+        {
+            "student": student,
+            "status": existing_by_student_id[student.id].status
+            if student.id in existing_by_student_id
+            else AttendanceRecord.Status.PRESENT,
+        }
+        for student in students
+    ]
+
+    return render(
+        request,
+        "core/attendance_roster.html",
+        {
+            "school_class": school_class,
+            "roster": roster,
+            "roster_date": roster_date,
+            "today": today,
+            "can_edit": can_edit,
+            "closed_event": closed_event,
+            "taken": bool(existing_by_student_id),
+            "prev_date": roster_date - timedelta(days=1),
+            "next_date": roster_date + timedelta(days=1) if roster_date < today else None,
+            "status_choices": AttendanceRecord.Status.choices,
+        },
+    )
+
+
+@login_required
+@role_required(SchoolMembership.Role.ADMIN)
+def attendance_overview(request):
+    """
+    School-wide attendance snapshot for an admin who needs the bigger
+    picture beyond one class's daily roster — the roadmap's "cases
+    where an admin needs the bigger picture (e.g. flagging a pattern of
+    absences)". Present/absent/late totals per class over the last 30
+    days; admin-only, since this is the one view that shows every
+    class's numbers side by side rather than a single family's or a
+    single class's own roster.
+    """
+    today = timezone.localdate()
+    window_start = today - timedelta(days=30)
+    classes = list(
+        scope_to_school(SchoolClass.objects.filter(is_active=True), request).order_by("name")
+    )
+    counts_by_class_id = {}
+    records = AttendanceRecord.objects.filter(
+        school_class__in=classes, date__gte=window_start, date__lte=today
+    ).values("school_class_id", "status")
+    for row in records:
+        bucket = counts_by_class_id.setdefault(
+            row["school_class_id"], {"present": 0, "absent": 0, "late": 0}
+        )
+        bucket[row["status"]] += 1
+
+    rows = []
+    for school_class in classes:
+        counts = counts_by_class_id.get(school_class.id, {"present": 0, "absent": 0, "late": 0})
+        rows.append(
+            {
+                "school_class": school_class,
+                "present": counts["present"],
+                "absent": counts["absent"],
+                "late": counts["late"],
+                "total": sum(counts.values()),
+            }
+        )
+
+    return render(
+        request,
+        "core/attendance_overview.html",
+        {"rows": rows, "window_start": window_start, "today": today},
+    )
+
+
+@login_required
+@role_required(SchoolMembership.Role.GUARDIAN)
+def my_child_attendance(request, pk):
+    """
+    A guardian's own child's attendance history — never another
+    student's, even another child in the same class (roadmap: "visible
+    to each student's own linked guardians ... but never the rest of
+    the class's records"). Scoped the same two ways as my_child_detail:
+    role_required(GUARDIAN) restricts this to guardian accounts, and the
+    GuardianLink lookup below restricts it further to a student this
+    guardian is actually linked to — a guardian can't view another
+    family's child's attendance by guessing a student id, and there is
+    no class-level or school-level route a guardian can reach at all
+    (attendance_roster/attendance_classes_list/attendance_overview are
+    all role_required(ADMIN, TEACHER) or ADMIN-only).
+    """
+    link = get_object_or_404(
+        GuardianLink.objects.select_related("student__school_class").filter(
+            student__school=request.school
+        ),
+        guardian=request.user,
+        student_id=pk,
+    )
+    student = link.student
+    records = list(AttendanceRecord.objects.filter(student=student).order_by("-date")[:90])
+    summary = {"present": 0, "absent": 0, "late": 0}
+    for record in records:
+        summary[record.status] += 1
+
+    return render(
+        request,
+        "core/my_child_attendance.html",
+        {"student": student, "records": records, "summary": summary},
+    )
+
+
+# ---------------------------------------------------------------------
 # Messaging — a private, one-to-one thread between a guardian and their
 # child's teacher, scoped to the shared student. Off by default per
 # school (School.messaging_enabled, set from Admin > Settings) and,
@@ -1952,6 +2200,14 @@ def class_detail(request, pk):
             school_class=school_class,
         ).first()
 
+    # "Not yet taken today" indicator (roadmap: Attendance Tracking) —
+    # a teacher shouldn't have to rely on memory to know whether
+    # they've already run today's roster for this class.
+    today = timezone.localdate()
+    attendance_taken_today = AttendanceRecord.objects.filter(
+        school_class=school_class, date=today
+    ).exists()
+
     return render(
         request,
         "core/class_detail.html",
@@ -1960,6 +2216,7 @@ def class_detail(request, pk):
             "students": students,
             "show_archived": show_archived,
             "class_thread": class_thread,
+            "attendance_taken_today": attendance_taken_today,
         },
     )
 

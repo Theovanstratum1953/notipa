@@ -15,6 +15,7 @@ from .messaging import class_messaging_effectively_enabled, thread_messaging_ena
 from .models import (
     Announcement,
     AnnouncementRead,
+    AttendanceRecord,
     FeeNotice,
     GuardianLink,
     Homework,
@@ -3063,6 +3064,212 @@ class SchoolCalendarEventTests(TestCase):
         # storage inserts a content hash before the extension in
         # production-like test runs (e.g. calendar-warnings.abcd1234.js).
         self.assertContains(response, "calendar-warnings")
+
+
+class AttendanceTests(TestCase):
+    """
+    Covers the Attendance Tracking feature: core.models.AttendanceRecord,
+    and core.views.attendance_classes_list/attendance_roster/
+    attendance_overview/my_child_attendance. The permission boundary
+    that matters most here (per the roadmap: "visible to a student's
+    own guardians — nobody else's") is that a guardian can never reach
+    another family's child's record, even indirectly through a
+    class-level view — that's exercised explicitly below, not just
+    "guardian sees their own child's data" in isolation.
+    """
+
+    def setUp(self):
+        self.school_a = School.objects.create(name="School A", country="PH")
+        self.school_b = School.objects.create(name="School B", country="PH")
+
+        self.admin_a = User.objects.create_user(username="admin_a", password="pw12345!")
+        SchoolMembership.objects.create(
+            user=self.admin_a, school=self.school_a, role=SchoolMembership.Role.ADMIN
+        )
+        self.teacher_a = User.objects.create_user(username="teacher_a", password="pw12345!")
+        SchoolMembership.objects.create(
+            user=self.teacher_a, school=self.school_a, role=SchoolMembership.Role.TEACHER
+        )
+        self.guardian_a = User.objects.create_user(username="guardian_a", password="pw12345!")
+        SchoolMembership.objects.create(
+            user=self.guardian_a, school=self.school_a, role=SchoolMembership.Role.GUARDIAN
+        )
+        self.other_guardian_a = User.objects.create_user(
+            username="other_guardian_a", password="pw12345!"
+        )
+        SchoolMembership.objects.create(
+            user=self.other_guardian_a, school=self.school_a, role=SchoolMembership.Role.GUARDIAN
+        )
+        self.admin_b = User.objects.create_user(username="admin_b", password="pw12345!")
+        SchoolMembership.objects.create(
+            user=self.admin_b, school=self.school_b, role=SchoolMembership.Role.ADMIN
+        )
+
+        self.class_a = SchoolClass.objects.create(
+            school=self.school_a, name="Grade 4", academic_year="2026-2027"
+        )
+        self.class_b = SchoolClass.objects.create(
+            school=self.school_b, name="Grade 4", academic_year="2026-2027"
+        )
+
+        self.student = Student.objects.create(
+            school=self.school_a, school_class=self.class_a, first_name="Ana", last_name="Reyes"
+        )
+        self.other_student = Student.objects.create(
+            school=self.school_a, school_class=self.class_a, first_name="Ben", last_name="Cruz"
+        )
+        GuardianLink.objects.create(guardian=self.guardian_a, student=self.student)
+        GuardianLink.objects.create(guardian=self.other_guardian_a, student=self.other_student)
+
+        self.today = timezone.localdate()
+
+    def test_model_unique_constraint_per_student_per_day(self):
+        AttendanceRecord.objects.create(
+            student=self.student, school_class=self.class_a, date=self.today,
+            status=AttendanceRecord.Status.PRESENT,
+        )
+        with self.assertRaises(Exception):
+            AttendanceRecord.objects.create(
+                student=self.student, school_class=self.class_a, date=self.today,
+                status=AttendanceRecord.Status.ABSENT,
+            )
+
+    def test_teacher_can_take_todays_roster(self):
+        self.client.login(username="teacher_a", password="pw12345!")
+        response = self.client.post(
+            reverse("core:attendance_roster", args=[self.class_a.pk]),
+            {
+                f"status-{self.student.pk}": "absent",
+                f"status-{self.other_student.pk}": "present",
+            },
+        )
+        self.assertRedirects(
+            response,
+            f"{reverse('core:attendance_roster', args=[self.class_a.pk])}?date={self.today.isoformat()}",
+        )
+        record = AttendanceRecord.objects.get(student=self.student, date=self.today)
+        self.assertEqual(record.status, AttendanceRecord.Status.ABSENT)
+        self.assertEqual(record.recorded_by, self.teacher_a)
+        self.assertEqual(
+            AttendanceRecord.objects.get(student=self.other_student, date=self.today).status,
+            AttendanceRecord.Status.PRESENT,
+        )
+
+    def test_retaking_todays_roster_updates_in_place(self):
+        self.client.login(username="teacher_a", password="pw12345!")
+        self.client.post(
+            reverse("core:attendance_roster", args=[self.class_a.pk]),
+            {f"status-{self.student.pk}": "absent", f"status-{self.other_student.pk}": "present"},
+        )
+        self.client.post(
+            reverse("core:attendance_roster", args=[self.class_a.pk]),
+            {f"status-{self.student.pk}": "late", f"status-{self.other_student.pk}": "present"},
+        )
+        self.assertEqual(AttendanceRecord.objects.filter(student=self.student).count(), 1)
+        self.assertEqual(
+            AttendanceRecord.objects.get(student=self.student).status, AttendanceRecord.Status.LATE
+        )
+
+    def test_teacher_cannot_edit_older_entry(self):
+        old_date = self.today - timedelta(days=5)
+        AttendanceRecord.objects.create(
+            student=self.student, school_class=self.class_a, date=old_date,
+            status=AttendanceRecord.Status.PRESENT, recorded_by=self.teacher_a,
+        )
+        self.client.login(username="teacher_a", password="pw12345!")
+        response = self.client.post(
+            f"{reverse('core:attendance_roster', args=[self.class_a.pk])}?date={old_date.isoformat()}",
+            {f"status-{self.student.pk}": "absent"},
+        )
+        self.assertEqual(response.status_code, 403)
+        record = AttendanceRecord.objects.get(student=self.student, date=old_date)
+        self.assertEqual(record.status, AttendanceRecord.Status.PRESENT)
+
+    def test_admin_can_amend_older_entry(self):
+        old_date = self.today - timedelta(days=5)
+        AttendanceRecord.objects.create(
+            student=self.student, school_class=self.class_a, date=old_date,
+            status=AttendanceRecord.Status.PRESENT, recorded_by=self.teacher_a,
+        )
+        self.client.login(username="admin_a", password="pw12345!")
+        response = self.client.post(
+            f"{reverse('core:attendance_roster', args=[self.class_a.pk])}?date={old_date.isoformat()}",
+            {f"status-{self.student.pk}": "absent"},
+        )
+        self.assertRedirects(
+            response,
+            f"{reverse('core:attendance_roster', args=[self.class_a.pk])}?date={old_date.isoformat()}",
+        )
+        record = AttendanceRecord.objects.get(student=self.student, date=old_date)
+        self.assertEqual(record.status, AttendanceRecord.Status.ABSENT)
+        self.assertEqual(record.recorded_by, self.admin_a)
+
+    def test_cannot_take_attendance_for_a_future_date(self):
+        self.client.login(username="teacher_a", password="pw12345!")
+        future = self.today + timedelta(days=1)
+        response = self.client.get(
+            f"{reverse('core:attendance_roster', args=[self.class_a.pk])}?date={future.isoformat()}"
+        )
+        self.assertRedirects(
+            response, reverse("core:attendance_roster", args=[self.class_a.pk])
+        )
+        self.assertFalse(AttendanceRecord.objects.filter(date=future).exists())
+
+    def test_guardian_cannot_reach_class_roster(self):
+        self.client.login(username="guardian_a", password="pw12345!")
+        response = self.client.get(reverse("core:attendance_roster", args=[self.class_a.pk]))
+        self.assertEqual(response.status_code, 403)
+
+    def test_guardian_cannot_reach_classes_list_or_overview(self):
+        self.client.login(username="guardian_a", password="pw12345!")
+        self.assertEqual(self.client.get(reverse("core:attendance_classes")).status_code, 403)
+        self.assertEqual(self.client.get(reverse("core:attendance_overview")).status_code, 403)
+
+    def test_teacher_cannot_reach_admin_overview(self):
+        self.client.login(username="teacher_a", password="pw12345!")
+        response = self.client.get(reverse("core:attendance_overview"))
+        self.assertEqual(response.status_code, 403)
+
+    def test_admin_cannot_reach_other_schools_class_roster(self):
+        self.client.login(username="admin_a", password="pw12345!")
+        response = self.client.get(reverse("core:attendance_roster", args=[self.class_b.pk]))
+        self.assertEqual(response.status_code, 404)
+
+    def test_guardian_sees_only_own_childs_attendance(self):
+        AttendanceRecord.objects.create(
+            student=self.student, school_class=self.class_a, date=self.today,
+            status=AttendanceRecord.Status.ABSENT, recorded_by=self.teacher_a,
+        )
+        AttendanceRecord.objects.create(
+            student=self.other_student, school_class=self.class_a, date=self.today,
+            status=AttendanceRecord.Status.LATE, recorded_by=self.teacher_a,
+        )
+        self.client.login(username="guardian_a", password="pw12345!")
+        response = self.client.get(reverse("core:my_child_attendance", args=[self.student.pk]))
+        self.assertEqual(response.status_code, 200)
+        records = response.context["records"]
+        self.assertEqual(len(records), 1)
+        self.assertEqual(records[0].student, self.student)
+
+    def test_guardian_cannot_view_another_familys_child_attendance(self):
+        self.client.login(username="guardian_a", password="pw12345!")
+        response = self.client.get(
+            reverse("core:my_child_attendance", args=[self.other_student.pk])
+        )
+        self.assertEqual(response.status_code, 404)
+
+    def test_class_detail_shows_not_yet_taken_indicator(self):
+        self.client.login(username="teacher_a", password="pw12345!")
+        response = self.client.get(reverse("core:class_detail", args=[self.class_a.pk]))
+        self.assertFalse(response.context["attendance_taken_today"])
+        self.assertContains(response, "Not taken today")
+
+        AttendanceRecord.objects.create(
+            student=self.student, school_class=self.class_a, date=self.today,
+            status=AttendanceRecord.Status.PRESENT, recorded_by=self.teacher_a,
+        )
+        response = self.client.get(reverse("core:class_detail", args=[self.class_a.pk]))
+        self.assertTrue(response.context["attendance_taken_today"])
 
 
 class MessagingTests(TestCase):

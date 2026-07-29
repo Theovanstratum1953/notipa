@@ -18,9 +18,17 @@
       {% endif %}
     </p>
   </div>
-  <a href="{% url 'core:class_edit' school_class.pk %}" class="btn btn--secondary">
-    Edit Class
-  </a>
+  <div>
+    <a href="{% url 'core:attendance_roster' school_class.pk %}" class="btn btn--primary">
+      Take Attendance
+      {% if not attendance_taken_today %}
+        <span class="tag tag--warning" style="margin-left: 6px;"><span class="tag__eyelet"></span>Not taken today</span>
+      {% endif %}
+    </a>
+    <a href="{% url 'core:class_edit' school_class.pk %}" class="btn btn--secondary">
+      Edit Class
+    </a>
+  </div>
 </div>
 
 <div class="card card--pad-lg" style="max-width: 640px; margin-bottom: 20px;">

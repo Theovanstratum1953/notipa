@@ -125,6 +125,36 @@
   </div>
 </div>
 
+<div class="card card--pad-lg" style="max-width: 480px; margin-bottom: 20px;">
+  <div class="card__header">
+    <h2 class="card__title" style="margin:0;">Recent Attendance</h2>
+    <a href="{% url 'core:my_child_attendance' student.pk %}" class="card__link">View all</a>
+  </div>
+  <div class="list-group">
+    {% for r in attendance_records %}
+    <div class="list-row">
+      <div class="list-row__icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+      </div>
+      <div class="list-row__body">
+        <div class="list-row__title">{{ r.date|date:"M j, Y" }}</div>
+        <div class="list-row__meta">
+          {% if r.status == "present" %}
+            <span class="tag tag--active"><span class="tag__eyelet"></span>Present</span>
+          {% elif r.status == "late" %}
+            <span class="tag tag--warning"><span class="tag__eyelet"></span>Late</span>
+          {% else %}
+            <span class="tag tag--critical"><span class="tag__eyelet"></span>Absent</span>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+    {% empty %}
+    <div class="empty-list">No attendance recorded yet.</div>
+    {% endfor %}
+  </div>
+</div>
+
 <div class="card card--pad-lg" style="max-width: 480px;">
   <div class="card__header">
     <h2 class="card__title" style="margin:0;">Permission Slips</h2>
