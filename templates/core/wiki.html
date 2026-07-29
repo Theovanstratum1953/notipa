@@ -11,7 +11,7 @@
   <div>
     <span class="page-header__eyebrow">Help</span>
     <h1>User Manual</h1>
-    <p class="page-header__sub">How to set up a school, manage the people in it — teachers, guardians, classes, and students — and post announcements, homework, fee notices, and permission slips.</p>
+    <p class="page-header__sub">How to set up a school, manage the people in it — teachers, guardians, classes, and students — and post announcements, homework, fee notices, permission slips, attendance, and report cards.</p>
   </div>
 </div>
 
@@ -32,6 +32,9 @@
     <li style="margin-bottom: 6px;"><a href="#fees">Fee Notices</a></li>
     <li style="margin-bottom: 6px;"><a href="#permission-slips">Permission Slips</a></li>
     <li style="margin-bottom: 6px;"><a href="#calendar">Calendar</a></li>
+    <li style="margin-bottom: 6px;"><a href="#attendance">Attendance</a></li>
+    <li style="margin-bottom: 6px;"><a href="#terms">Terms</a></li>
+    <li style="margin-bottom: 6px;"><a href="#report-cards">Report Cards</a></li>
     <li style="margin-bottom: 6px;"><a href="#messaging">Messaging</a></li>
     <li style="margin-bottom: 6px;"><a href="#for-guardians">What a guardian sees</a></li>
   </ul>
@@ -159,6 +162,35 @@
   <p>Teachers and guardians see a read-only version of this page listing upcoming closed days only — past ones drop off automatically rather than cluttering the list, though admins still see the full history on their management view.</p>
 </div>
 
+<div class="card card--pad-lg" id="attendance" style="margin-bottom: 20px;">
+  <h2 style="margin-top:0;">Attendance</h2>
+  <p>Open <strong>Attendance</strong> in the sidebar (admins and teachers) for a simple daily roster: present, absent, or late, taken once a day per class. It's deliberately not a period-by-period tracker — Notipa has no timetable concept, and this doesn't introduce one.</p>
+  <p><strong>Taking the roster:</strong> pick a class from the Attendance list (or click <strong>Take Attendance</strong> from the class's own page) and every active student defaults to <strong>Present</strong>. Mark anyone absent or late and save — it's a fast checklist, not a form per student. A class's page and the Attendance list both show a <strong>Not yet taken</strong> tag for today until someone does this, so nobody has to rely on memory to know whether it's been done.</p>
+  <p><strong>Retaking a day:</strong> reopening the same date and saving again updates that day's records in place — there's no way to end up with two conflicting entries for the same student on the same day.</p>
+  <p><strong>Looking at other days:</strong> use the previous/next-day links on the roster page. You can't take attendance for a date that hasn't happened yet.</p>
+  <p><strong>Editing older entries:</strong> today's roster is always editable by any teacher or admin. Anything older needs an admin to change it — a same-day correction (a student arrived late and was marked absent by mistake) is unrestricted, but the historical record beyond that isn't casually rewritten after the fact.</p>
+  <p><strong>Closed days:</strong> if a date falls on something already in the school <a href="#calendar">Calendar</a>, the roster shows a note that it's a closed day — same as the due-date warnings elsewhere, it's informational, not a block, in case a school genuinely needs to record something for that day.</p>
+  <p><strong>School Overview (admins only):</strong> a School Overview link shows present/absent/late totals per class over roughly the last 30 days — for spotting a pattern of absences without having to open every class's roster individually.</p>
+  <p>A guardian only ever sees their own child's attendance history, never the rest of the class's — see <a href="#for-guardians">What a guardian sees</a> below.</p>
+</div>
+
+<div class="card card--pad-lg" id="terms" style="margin-bottom: 20px;">
+  <h2 style="margin-top:0;">Terms</h2>
+  <p>Open <strong>Terms</strong> under Admin in the sidebar (admins only) to define the school's own academic terms — Term 1, Term 2, Term 3, or however your school breaks up its year. This is a one-time-per-year setup step: give each term a name and a start/end date.</p>
+  <p>Terms exist mainly to organize <a href="#report-cards">Report Cards</a> — each report card belongs to exactly one term — and a term's date range is also what a report card's attendance summary is calculated over. A term's name has to be unique at your school, and its end date can't be before its start date.</p>
+  <p>Teachers and guardians never manage terms directly; a term only shows up for them as a dropdown when working with report cards.</p>
+</div>
+
+<div class="card card--pad-lg" id="report-cards" style="margin-bottom: 20px;">
+  <h2 style="margin-top:0;">Report Cards</h2>
+  <p>Open <strong>Report Cards</strong> in the sidebar (admins and teachers) to replace the photocopied slip sent home in a backpack with a term-by-term academic report per student, delivered straight to their guardians through Notipa. This isn't a gradebook — no weighted assessments, no standards tracking, no transcripts — just a single, dated document per student per term: subject grades, an attendance summary, and a comment.</p>
+  <p><strong>Getting started:</strong> pick a class, then a term (use <a href="#terms">Terms</a> first if none exist yet) to see every active student's report status — <strong>Not started</strong>, <strong>Draft</strong>, or <strong>Published</strong>. Teachers only see classes they actually teach; an admin can enter a report for any class, on a teacher's behalf.</p>
+  <p><strong>Filling in a report:</strong> click <strong>Start</strong> (or <strong>Edit</strong>) on a student to add subject/grade rows and an optional comment. Grades are free text — a letter grade, a percentage, a descriptive mark, whatever your school actually uses. Use <strong>+ Add Subject Row</strong> to add more rows on the fly, and <strong>Remove</strong> on any row you don't need — both happen instantly, without saving the page first. The first time you start a report for a class/term where a sibling student's report already has subjects entered, those subject names are copied in automatically (with the grade left blank) so you're not retyping the same subject list for every student.</p>
+  <p>An <strong>Attendance This Term</strong> box on the report shows that student's present/absent/late counts, pulled in automatically from <a href="#attendance">Attendance</a> for the term's date range — nothing to total up by hand.</p>
+  <p><strong>Draft vs. published:</strong> the same pattern as Announcements — <strong>Save Draft</strong> keeps a report invisible to guardians so you can come back to it later; <strong>Publish</strong> makes it visible. Once a class is finished, use <strong>Publish All Drafts</strong> on the roster page to publish every draft for that class/term in one action, rather than one by one.</p>
+  <p>A guardian sees every published report for their own child, by term, newest first, and can open a clean, print-friendly view (no sidebar, no app menu) to save or print a copy — see <a href="#for-guardians">What a guardian sees</a> below. A guardian never sees a draft, and never sees another family's child's report.</p>
+</div>
+
 <div class="card card--pad-lg" id="messaging" style="margin-bottom: 20px;">
   <h2 style="margin-top:0;">Messaging</h2>
   <p>Direct, private, one-to-one messages between a guardian and their child's teacher — the "quick question" channel Announcements and Homework aren't built for, since those only ever go one way. <strong>Off by default</strong> for every school; an admin turns it on from <a href="#settings">Settings</a> when the school is actually ready to support it — see <a href="#messaging-switch">Turning messaging on and off</a> below for exactly what that commits the school to. Turning it on also switches on <a href="#class-messaging">class group threads</a> below, which share the same on/off switch.</p>
@@ -190,12 +222,14 @@
 
 <div class="card card--pad-lg" id="for-guardians">
   <h2 style="margin-top:0;">What a guardian sees</h2>
-  <p>Everything above except Announcements, Homework, Fee Notices, Permission Slips, Calendar, and Messaging is for school staff. A guardian account sees something much simpler when they log in: their dashboard shows the child (or children) linked to their account at the current school, with each one's class and homeroom teacher. Clicking a child opens a read-only page with the same class/teacher information, plus that child's recent announcements, recent homework, recent fee notices, and recent permission slip status — a guardian can't edit a student's details, archive anyone, or add/remove guardian links from their own account.</p>
+  <p>Everything above except Announcements, Homework, Fee Notices, Permission Slips, Calendar, Attendance, Report Cards, and Messaging is for school staff. A guardian account sees something much simpler when they log in: their dashboard shows the child (or children) linked to their account at the current school, with each one's class and homeroom teacher. Clicking a child opens a read-only page with the same class/teacher information, plus that child's recent announcements, recent homework, recent fee notices, recent permission slip status, recent attendance, and recent report cards — a guardian can't edit a student's details, archive anyone, or add/remove guardian links from their own account.</p>
   <p>A guardian's own <strong>Announcements</strong> page (same sidebar link, different content than staff see) lists every published, relevant announcement with a <strong>Mark as read</strong> button on each unread one.</p>
   <p>A guardian's own <strong>Homework</strong> page lists every homework item posted for their children's classes, with the due date, description, and a download link for any attachment. If a homework item accepts submissions, an upload control appears underneath it for each of your children in that class — attach a file (an image or a PDF, size-capped) and an optional note. You can replace it any time before the due date passes; after that, a first-ever submission is still accepted and simply flagged <strong>Late</strong>, but a submission that's already there can no longer be replaced. If more than one guardian is linked to the same child, any of you can submit or replace it, and all of you see the same up-to-date status.</p>
   <p>A guardian's own <strong>Fee Notices</strong> page lists every fee notice for their own children, with the amount, due date, description, and whether it's currently unpaid, paid, or waived. Like everywhere else in the app, no payments are taken here — it's informational only.</p>
   <p>A guardian's own <strong>Permission Slips</strong> page lists every permission slip for their own children, with a <strong>Yes</strong>/<strong>No</strong> button and an optional notes field for each one still awaiting a response — and shows their existing answer for ones they've already responded to, which they can change any time by submitting again.</p>
   <p>A guardian's own <strong>Calendar</strong> page lists the school's upcoming closed days, same as what teachers see — read-only, so you can tell at a glance why school's out next Thursday.</p>
+  <p>From your child's own page, a <strong>Recent Attendance</strong> card shows their latest present/absent/late records with a <strong>View all</strong> link to the full history — always just that one child's, never the rest of their class.</p>
+  <p>A <strong>Recent Report Cards</strong> card on the same page lists their published reports, with a <strong>View all</strong> link to see every term. Each one opens as a clean, print-friendly page — no sidebar or menu — so you can save or print a copy. You'll only ever see a report once a teacher has published it; a report still being worked on doesn't show up here at all. If more than one guardian is linked to the same child, you both see the exact same published reports and attendance history.</p>
   <p>If your school has turned on messaging, a <strong>Message [teacher]</strong> button appears on your child's page for each teacher actually teaching their class. Sending a first message starts a private thread with just that teacher, about just that child — <strong>Messages</strong> in the sidebar lists all of your conversations, and other guardians linked to the same child don't see or share your threads with a teacher; each guardian's conversations are their own. A <strong>Class Group Chat</strong> button appears alongside it, which opens the whole class's shared thread with its teacher and every other guardian in the class — see <a href="#class-messaging">Class Group Messaging</a>.</p>
   <p>If a guardian logs in and sees no children listed, it means nobody has linked their account to a student yet — a school admin or teacher needs to do that from the student's or guardian's own page (see <a href="#linking">Linking guardians and students</a>).</p>
 </div>
