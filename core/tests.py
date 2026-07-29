@@ -19,6 +19,7 @@ from .models import (
     HomeworkSubmission,
     Message,
     MessageThread,
+    MessageThreadRead,
     PermissionSlip,
     PermissionSlipResponse,
     School,
@@ -3316,3 +3317,402 @@ class MessagingTests(TestCase):
         self.assertRedirects(response, reverse("core:settings"))
         self.school_a.refresh_from_db()
         self.assertFalse(self.school_a.messaging_enabled)
+
+
+class ClassMessagingTests(TestCase):
+    """
+    Covers Class Group Messaging: the CLASS-type MessageThread that's
+    automatically created and kept in sync for a class (core.messaging.
+    sync_class_thread, wired up via core.signals), teacher moderation
+    (removing a message leaves a placeholder), the per-class
+    announcements-only toggle, and how it shows up in the shared
+    messages_inbox/message_thread_detail views alongside one-to-one
+    threads.
+    """
+
+    def setUp(self):
+        self.school = School.objects.create(
+            name="School A", country="PH", messaging_enabled=True
+        )
+        self.admin = User.objects.create_user(username="admin_a", password="pw12345!")
+        SchoolMembership.objects.create(
+            user=self.admin, school=self.school, role=SchoolMembership.Role.ADMIN
+        )
+
+        self.teacher_user = User.objects.create_user(
+            username="teacher_a", first_name="Tina", last_name="Teach", password="pw12345!"
+        )
+        self.teacher_membership = SchoolMembership.objects.create(
+            user=self.teacher_user, school=self.school, role=SchoolMembership.Role.TEACHER
+        )
+        self.co_teacher_user = User.objects.create_user(
+            username="teacher_co", first_name="Cory", last_name="Coach", password="pw12345!"
+        )
+        self.co_teacher_membership = SchoolMembership.objects.create(
+            user=self.co_teacher_user, school=self.school, role=SchoolMembership.Role.TEACHER
+        )
+        self.other_teacher_user = User.objects.create_user(
+            username="teacher_other", password="pw12345!"
+        )
+        self.other_teacher_membership = SchoolMembership.objects.create(
+            user=self.other_teacher_user, school=self.school, role=SchoolMembership.Role.TEACHER
+        )
+
+        self.guardian_user = User.objects.create_user(
+            username="guardian_a", first_name="Gina", last_name="Guardian", password="pw12345!"
+        )
+        SchoolMembership.objects.create(
+            user=self.guardian_user, school=self.school, role=SchoolMembership.Role.GUARDIAN
+        )
+        self.other_guardian_user = User.objects.create_user(
+            username="guardian_b", password="pw12345!"
+        )
+        SchoolMembership.objects.create(
+            user=self.other_guardian_user, school=self.school, role=SchoolMembership.Role.GUARDIAN
+        )
+        self.unrelated_guardian = User.objects.create_user(
+            username="guardian_z", password="pw12345!"
+        )
+        SchoolMembership.objects.create(
+            user=self.unrelated_guardian, school=self.school, role=SchoolMembership.Role.GUARDIAN
+        )
+
+        self.class_a = SchoolClass.objects.create(
+            school=self.school,
+            name="Grade 4 - Sampaguita",
+            academic_year="2026-2027",
+            homeroom_teacher=self.teacher_membership,
+        )
+        self.class_b = SchoolClass.objects.create(
+            school=self.school,
+            name="Grade 5 - Rosal",
+            academic_year="2026-2027",
+        )
+        self.student = Student.objects.create(
+            school=self.school, school_class=self.class_a, first_name="Ana", last_name="Reyes"
+        )
+        self.guardian_link = GuardianLink.objects.create(
+            guardian=self.guardian_user, student=self.student
+        )
+
+    def _class_thread(self, school_class=None):
+        return MessageThread.objects.get(
+            thread_type=MessageThread.ThreadType.CLASS,
+            school_class=school_class or self.class_a,
+        )
+
+    # -- creation / auto-sync -------------------------------------------------
+
+    def test_class_thread_created_once_class_has_a_student(self):
+        thread = self._class_thread()
+        self.assertEqual(thread.school, self.school)
+        participant_ids = set(thread.participants.values_list("id", flat=True))
+        self.assertEqual(participant_ids, {self.teacher_user.id, self.guardian_user.id})
+
+    def test_no_thread_for_class_with_no_students(self):
+        self.assertFalse(
+            MessageThread.objects.filter(
+                thread_type=MessageThread.ThreadType.CLASS, school_class=self.class_b
+            ).exists()
+        )
+
+    def test_no_thread_created_when_messaging_disabled(self):
+        school = School.objects.create(name="Off school", country="PH")
+        klass = SchoolClass.objects.create(
+            school=school, name="Grade 1", academic_year="2026-2027"
+        )
+        Student.objects.create(school=school, school_class=klass, first_name="A", last_name="B")
+        self.assertFalse(
+            MessageThread.objects.filter(
+                thread_type=MessageThread.ThreadType.CLASS, school_class=klass
+            ).exists()
+        )
+
+    def test_guardian_added_when_child_enrolled(self):
+        student2 = Student.objects.create(
+            school=self.school, school_class=self.class_a, first_name="Bea", last_name="Cruz"
+        )
+        GuardianLink.objects.create(guardian=self.other_guardian_user, student=student2)
+        thread = self._class_thread()
+        self.assertIn(self.other_guardian_user, thread.participants.all())
+
+    def test_guardian_removed_when_guardian_link_removed(self):
+        self.guardian_link.delete()
+        thread = self._class_thread()
+        self.assertNotIn(self.guardian_user, thread.participants.all())
+
+    def test_guardian_moved_off_and_on_thread_on_mid_term_transfer(self):
+        """A student transferring classes mid-term should add/remove
+        thread access immediately, not leave stale access behind
+        (proposal: 'Testing & rollout' edge case)."""
+        Student.objects.create(
+            school=self.school, school_class=self.class_b, first_name="X", last_name="Y"
+        )  # give class_b a student so it gets its own thread first
+        self.student.school_class = self.class_b
+        self.student.save()
+
+        old_thread = self._class_thread(self.class_a)
+        new_thread = self._class_thread(self.class_b)
+        self.assertNotIn(self.guardian_user, old_thread.participants.all())
+        self.assertIn(self.guardian_user, new_thread.participants.all())
+
+    def test_teacher_added_and_removed_on_homeroom_change(self):
+        self.class_a.homeroom_teacher = self.other_teacher_membership
+        self.class_a.save()
+        thread = self._class_thread()
+        self.assertNotIn(self.teacher_user, thread.participants.all())
+        self.assertIn(self.other_teacher_user, thread.participants.all())
+
+    def test_teacher_added_via_additional_teachers(self):
+        self.class_a.additional_teachers.add(self.co_teacher_membership)
+        thread = self._class_thread()
+        self.assertIn(self.co_teacher_user, thread.participants.all())
+
+    def test_teacher_removed_via_additional_teachers(self):
+        self.class_a.additional_teachers.add(self.co_teacher_membership)
+        self.class_a.additional_teachers.remove(self.co_teacher_membership)
+        thread = self._class_thread()
+        self.assertNotIn(self.co_teacher_user, thread.participants.all())
+
+    def test_class_threads_backfilled_when_school_messaging_turned_on(self):
+        school = School.objects.create(name="Freshly on", country="PH")
+        membership = SchoolMembership.objects.create(
+            user=self.teacher_user, school=school, role=SchoolMembership.Role.TEACHER
+        )
+        klass = SchoolClass.objects.create(
+            school=school, name="Grade 2", academic_year="2026-2027", homeroom_teacher=membership
+        )
+        Student.objects.create(school=school, school_class=klass, first_name="A", last_name="B")
+        self.assertFalse(
+            MessageThread.objects.filter(
+                thread_type=MessageThread.ThreadType.CLASS, school_class=klass
+            ).exists()
+        )
+        school.messaging_enabled = True
+        school.save()
+        self.assertTrue(
+            MessageThread.objects.filter(
+                thread_type=MessageThread.ThreadType.CLASS, school_class=klass
+            ).exists()
+        )
+
+    def test_class_thread_survives_last_student_leaving(self):
+        """History stays even once every student has left — only
+        participants shrink, per core.messaging.sync_class_thread's
+        docstring."""
+        self.student.school_class = None
+        self.student.save()
+        self.assertTrue(
+            MessageThread.objects.filter(
+                thread_type=MessageThread.ThreadType.CLASS, school_class=self.class_a
+            ).exists()
+        )
+        thread = self._class_thread()
+        self.assertNotIn(self.guardian_user, thread.participants.all())
+        self.assertIn(self.teacher_user, thread.participants.all())
+
+    # -- access ----------------------------------------------------------------
+
+    def test_participant_can_view_thread(self):
+        thread = self._class_thread()
+        self.client.login(username="guardian_a", password="pw12345!")
+        response = self.client.get(reverse("core:message_thread_detail", args=[thread.pk]))
+        self.assertEqual(response.status_code, 200)
+
+    def test_non_participant_guardian_cannot_view_thread(self):
+        thread = self._class_thread()
+        self.client.login(username="guardian_z", password="pw12345!")
+        response = self.client.get(reverse("core:message_thread_detail", args=[thread.pk]))
+        self.assertEqual(response.status_code, 404)
+
+    def test_unconnected_teacher_cannot_view_thread(self):
+        thread = self._class_thread()
+        self.client.login(username="teacher_other", password="pw12345!")
+        response = self.client.get(reverse("core:message_thread_detail", args=[thread.pk]))
+        self.assertEqual(response.status_code, 404)
+
+    def test_thread_inaccessible_when_messaging_turned_off(self):
+        thread = self._class_thread()
+        self.school.messaging_enabled = False
+        self.school.save()
+        self.client.login(username="guardian_a", password="pw12345!")
+        response = self.client.get(reverse("core:message_thread_detail", args=[thread.pk]))
+        self.assertEqual(response.status_code, 404)
+
+    def test_admin_has_no_class_thread_access(self):
+        thread = self._class_thread()
+        self.client.login(username="admin_a", password="pw12345!")
+        response = self.client.get(reverse("core:message_thread_detail", args=[thread.pk]))
+        self.assertEqual(response.status_code, 404)
+
+    # -- posting -----------------------------------------------------------------
+
+    def test_guardian_can_post_by_default(self):
+        thread = self._class_thread()
+        self.client.login(username="guardian_a", password="pw12345!")
+        response = self.client.post(
+            reverse("core:message_thread_detail", args=[thread.pk]), {"body": "Hi everyone!"}
+        )
+        self.assertRedirects(response, reverse("core:message_thread_detail", args=[thread.pk]))
+        self.assertTrue(Message.objects.filter(thread=thread, body="Hi everyone!").exists())
+
+    def test_teacher_can_post(self):
+        thread = self._class_thread()
+        self.client.login(username="teacher_a", password="pw12345!")
+        self.client.post(
+            reverse("core:message_thread_detail", args=[thread.pk]), {"body": "Reminder: field trip Friday."}
+        )
+        self.assertTrue(Message.objects.filter(thread=thread, sender=self.teacher_user).exists())
+
+    def test_guardian_cannot_post_when_announcements_only(self):
+        thread = self._class_thread()
+        thread.announcements_only = True
+        thread.save(update_fields=["announcements_only"])
+        self.client.login(username="guardian_a", password="pw12345!")
+        self.client.post(
+            reverse("core:message_thread_detail", args=[thread.pk]), {"body": "Can I post?"}
+        )
+        self.assertFalse(Message.objects.filter(thread=thread, body="Can I post?").exists())
+
+    def test_teacher_can_still_post_when_announcements_only(self):
+        thread = self._class_thread()
+        thread.announcements_only = True
+        thread.save(update_fields=["announcements_only"])
+        self.client.login(username="teacher_a", password="pw12345!")
+        self.client.post(
+            reverse("core:message_thread_detail", args=[thread.pk]), {"body": "Announcement."}
+        )
+        self.assertTrue(Message.objects.filter(thread=thread, body="Announcement.").exists())
+
+    # -- announcements-only toggle -------------------------------------------
+
+    def test_teacher_can_toggle_announcements_only(self):
+        thread = self._class_thread()
+        self.client.login(username="teacher_a", password="pw12345!")
+        response = self.client.post(
+            reverse("core:class_thread_toggle_announcements_only", args=[thread.pk])
+        )
+        self.assertRedirects(response, reverse("core:message_thread_detail", args=[thread.pk]))
+        thread.refresh_from_db()
+        self.assertTrue(thread.announcements_only)
+
+        self.client.post(reverse("core:class_thread_toggle_announcements_only", args=[thread.pk]))
+        thread.refresh_from_db()
+        self.assertFalse(thread.announcements_only)
+
+    def test_guardian_cannot_toggle_announcements_only(self):
+        thread = self._class_thread()
+        self.client.login(username="guardian_a", password="pw12345!")
+        response = self.client.post(
+            reverse("core:class_thread_toggle_announcements_only", args=[thread.pk])
+        )
+        self.assertEqual(response.status_code, 403)
+        thread.refresh_from_db()
+        self.assertFalse(thread.announcements_only)
+
+    # -- moderation --------------------------------------------------------------
+
+    def test_teacher_can_remove_message(self):
+        thread = self._class_thread()
+        message = Message.objects.create(
+            thread=thread, sender=self.guardian_user, body="Something inappropriate"
+        )
+        self.client.login(username="teacher_a", password="pw12345!")
+        response = self.client.post(
+            reverse("core:class_message_remove", args=[thread.pk, message.pk])
+        )
+        self.assertRedirects(response, reverse("core:message_thread_detail", args=[thread.pk]))
+        message.refresh_from_db()
+        self.assertIsNotNone(message.removed_at)
+        self.assertEqual(message.removed_by, self.teacher_user)
+        # the row survives — this is a placeholder, not a delete.
+        self.assertTrue(Message.objects.filter(pk=message.pk).exists())
+
+    def test_removed_message_shows_placeholder_not_body(self):
+        thread = self._class_thread()
+        message = Message.objects.create(
+            thread=thread, sender=self.guardian_user, body="Something inappropriate"
+        )
+        message.removed_at = timezone.now()
+        message.removed_by = self.teacher_user
+        message.save(update_fields=["removed_at", "removed_by"])
+
+        self.client.login(username="guardian_a", password="pw12345!")
+        response = self.client.get(reverse("core:message_thread_detail", args=[thread.pk]))
+        self.assertNotContains(response, "Something inappropriate")
+        self.assertContains(response, "Message removed")
+
+    def test_guardian_cannot_remove_message(self):
+        thread = self._class_thread()
+        message = Message.objects.create(thread=thread, sender=self.guardian_user, body="Hi")
+        self.client.login(username="guardian_a", password="pw12345!")
+        response = self.client.post(
+            reverse("core:class_message_remove", args=[thread.pk, message.pk])
+        )
+        self.assertEqual(response.status_code, 403)
+        message.refresh_from_db()
+        self.assertIsNone(message.removed_at)
+
+    def test_one_to_one_thread_has_no_class_moderation(self):
+        one_to_one = MessageThread.objects.create(
+            school=self.school,
+            student=self.student,
+            guardian=self.guardian_user,
+            teacher=self.teacher_user,
+        )
+        message = Message.objects.create(thread=one_to_one, sender=self.guardian_user, body="Hi")
+        self.client.login(username="teacher_a", password="pw12345!")
+        response = self.client.post(
+            reverse("core:class_message_remove", args=[one_to_one.pk, message.pk])
+        )
+        self.assertEqual(response.status_code, 404)
+
+    # -- unread tracking / inbox --------------------------------------------
+
+    def test_class_thread_unread_count_based_on_thread_read_state(self):
+        thread = self._class_thread()
+        Message.objects.create(thread=thread, sender=self.guardian_user, body="One")
+        Message.objects.create(thread=thread, sender=self.guardian_user, body="Two")
+        self.client.login(username="teacher_a", password="pw12345!")
+        response = self.client.get(reverse("core:messages"))
+        class_rows = [t for t in response.context["threads"] if t.thread_type == "class"]
+        self.assertEqual(len(class_rows), 1)
+        self.assertEqual(class_rows[0].unread_count, 2)
+
+        # Viewing the thread records a read state...
+        self.client.get(reverse("core:message_thread_detail", args=[thread.pk]))
+        self.assertTrue(
+            MessageThreadRead.objects.filter(thread=thread, user=self.teacher_user).exists()
+        )
+        # ...so a message sent before that moment is no longer unread.
+        response = self.client.get(reverse("core:messages"))
+        class_rows = [t for t in response.context["threads"] if t.thread_type == "class"]
+        self.assertEqual(class_rows[0].unread_count, 0)
+
+    def test_removed_message_never_counts_as_unread(self):
+        thread = self._class_thread()
+        message = Message.objects.create(thread=thread, sender=self.guardian_user, body="Hi")
+        message.removed_at = timezone.now()
+        message.save(update_fields=["removed_at"])
+        self.client.login(username="teacher_a", password="pw12345!")
+        response = self.client.get(reverse("core:messages"))
+        class_rows = [t for t in response.context["threads"] if t.thread_type == "class"]
+        self.assertEqual(class_rows[0].unread_count, 0)
+
+    def test_inbox_combines_one_to_one_and_class_threads(self):
+        class_thread = self._class_thread()
+        one_to_one = MessageThread.objects.create(
+            school=self.school,
+            student=self.student,
+            guardian=self.guardian_user,
+            teacher=self.teacher_user,
+        )
+        self.client.login(username="guardian_a", password="pw12345!")
+        response = self.client.get(reverse("core:messages"))
+        thread_ids = {t.pk for t in response.context["threads"]}
+        self.assertEqual(thread_ids, {class_thread.pk, one_to_one.pk})
+
+    def test_unrelated_guardian_does_not_see_class_thread_in_inbox(self):
+        self.client.login(username="guardian_z", password="pw12345!")
+        response = self.client.get(reverse("core:messages"))
+        self.assertEqual(len(response.context["threads"]), 0)

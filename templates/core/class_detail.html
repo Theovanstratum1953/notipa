@@ -38,6 +38,12 @@
       {% for t in school_class.additional_teachers.all %}{{ t.user.get_full_name|default:t.user.username }}{% if not forloop.last %}, {% endif %}{% endfor %}
     </p>
   {% endif %}
+  {% if class_thread %}
+  <a href="{% url 'core:message_thread_detail' class_thread.pk %}" class="btn btn--secondary btn--sm" style="margin-top: 8px;">
+    Class Group Chat
+    {% if class_thread.announcements_only %} (announcements only){% endif %}
+  </a>
+  {% endif %}
 </div>
 
 <div class="page-header">

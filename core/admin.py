@@ -10,6 +10,7 @@ from .models import (
     HomeworkSubmission,
     Message,
     MessageThread,
+    MessageThreadRead,
     PermissionSlip,
     PermissionSlipResponse,
     School,
@@ -177,24 +178,34 @@ class SchoolCalendarEventAdmin(admin.ModelAdmin):
 class MessageInline(admin.TabularInline):
     model = Message
     extra = 0
-    autocomplete_fields = ["sender"]
+    autocomplete_fields = ["sender", "removed_by"]
+
+
+class MessageThreadReadInline(admin.TabularInline):
+    model = MessageThreadRead
+    extra = 0
+    autocomplete_fields = ["user"]
 
 
 @admin.register(MessageThread)
 class MessageThreadAdmin(admin.ModelAdmin):
-    list_display = ("student", "guardian", "teacher", "school", "last_message_at", "created_at")
-    list_filter = ("school",)
+    list_display = (
+        "__str__", "thread_type", "school_class", "student", "guardian", "teacher",
+        "announcements_only", "school", "last_message_at", "created_at",
+    )
+    list_filter = ("school", "thread_type", "announcements_only")
     search_fields = (
         "student__first_name", "student__last_name",
         "guardian__username", "teacher__username",
+        "school_class__name",
     )
-    autocomplete_fields = ["school", "student", "guardian", "teacher"]
-    inlines = [MessageInline]
+    autocomplete_fields = ["school", "student", "school_class", "guardian", "teacher", "participants"]
+    inlines = [MessageInline, MessageThreadReadInline]
 
 
 @admin.register(Message)
 class MessageAdmin(admin.ModelAdmin):
-    list_display = ("thread", "sender", "sent_at", "read_at")
-    list_filter = ("sent_at",)
+    list_display = ("thread", "sender", "sent_at", "read_at", "removed_at", "removed_by")
+    list_filter = ("sent_at", "removed_at")
     search_fields = ("body",)
-    autocomplete_fields = ["thread", "sender"]
+    autocomplete_fields = ["thread", "sender", "removed_by"]

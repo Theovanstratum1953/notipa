@@ -692,49 +692,109 @@ class SchoolCalendarEvent(UUIDModel):
 
 class MessageThread(UUIDModel):
     """
-    A private, one-to-one conversation between a guardian and a teacher,
-    scoped to the one student that connects them — the "quick question"
-    channel Announcements and Homework aren't built for, since those are
-    always broadcast, never a reply back.
+    A conversation that shares the Message model below in one of two
+    shapes, distinguished by `thread_type`:
 
-    Deliberately narrow in shape: exactly one guardian, one teacher, one
-    student per thread, not a general-purpose DM or group chat. If a
-    guardian has two children with two different teachers, that's two
-    separate MessageThread rows, not one thread that branches — keeping
-    "who can see this thread" trivially answerable (its own guardian and
-    teacher fields, nothing else) rather than needing a participants
-    list. Class group messaging (mentioned as a later feature) is meant
-    to reuse this same Message model against a different kind of thread
-    later, not to replace this one.
+    - ONE_TO_ONE: a private conversation between a guardian and a
+      teacher, scoped to the one student that connects them — the
+      "quick question" channel Announcements and Homework aren't built
+      for, since those are always broadcast, never a reply back.
+      Exactly one guardian, one teacher, one student per thread. If a
+      guardian has two children with two different teachers, that's two
+      separate MessageThread rows, not one thread that branches —
+      keeping "who can see this thread" trivially answerable (its own
+      guardian and teacher fields) for this shape.
 
-    guardian and teacher are both plain User FKs (not SchoolMembership),
-    matching how GuardianLink.guardian and PermissionSlipResponse.
-    guardian already identify a specific person rather than a role
-    assignment — a thread is between two specific people, not "whoever
-    currently holds the homeroom_teacher slot."
+    - CLASS: the class-group thread (proposal: "Class Group Messaging")
+      — one per SchoolClass, with every guardian currently linked to an
+      enrolled student plus the class's homeroom/co-teachers as
+      `participants`, kept in sync automatically by core.messaging.
+      sync_class_thread as enrollment/teaching-staff changes, rather
+      than through the fixed guardian/teacher/student FKs a one-to-one
+      thread uses (those three stay null on a class thread).
 
-    Existence of a thread does not by itself mean either side has
-    actually said anything yet — core.views.message_thread_start
-    get_or_creates a thread with zero messages the moment either side
-    clicks "Message" from a student's page, and the thread only shows up
-    meaningfully in an inbox once a first Message is sent.
+    guardian and teacher are both plain User FKs (not SchoolMembership)
+    on the one-to-one shape, matching how GuardianLink.guardian and
+    PermissionSlipResponse.guardian already identify a specific person
+    rather than a role assignment — a one-to-one thread is between two
+    specific people, not "whoever currently holds the homeroom_teacher
+    slot." A class thread's participants list is exactly that kind of
+    role-derived membership instead, which is why it needs the M2M and
+    the sync helper rather than two fixed FKs.
+
+    Existence of a thread does not by itself mean anyone has actually
+    said anything yet — core.views.message_thread_start get_or_creates a
+    one-to-one thread with zero messages the moment either side clicks
+    "Message" from a student's page, and core.messaging.sync_class_thread
+    does the same for a class thread the first time a class with at
+    least one enrolled student has messaging turned on. Either kind only
+    shows up meaningfully in an inbox once a first Message is sent.
     """
+
+    class ThreadType(models.TextChoices):
+        ONE_TO_ONE = "one_to_one", "Guardian ↔ teacher"
+        CLASS = "class", "Class group"
 
     school = models.ForeignKey(
         School, on_delete=models.CASCADE, related_name="message_threads"
     )
+    thread_type = models.CharField(
+        max_length=10, choices=ThreadType.choices, default=ThreadType.ONE_TO_ONE
+    )
     student = models.ForeignKey(
-        Student, on_delete=models.CASCADE, related_name="message_threads"
+        Student,
+        on_delete=models.CASCADE,
+        related_name="message_threads",
+        null=True,
+        blank=True,
+        help_text="Set for a one-to-one thread; blank for a class thread, which isn't scoped to a single student.",
+    )
+    school_class = models.ForeignKey(
+        SchoolClass,
+        on_delete=models.CASCADE,
+        related_name="message_threads",
+        null=True,
+        blank=True,
+        help_text="Set for a class thread; blank for a one-to-one thread.",
     )
     guardian = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
         related_name="message_threads_as_guardian",
+        null=True,
+        blank=True,
+        help_text="One-to-one threads only.",
     )
     teacher = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
         related_name="message_threads_as_teacher",
+        null=True,
+        blank=True,
+        help_text="One-to-one threads only.",
+    )
+    participants = models.ManyToManyField(
+        settings.AUTH_USER_MODEL,
+        blank=True,
+        related_name="class_message_threads",
+        help_text=(
+            "Class threads only — every guardian linked to a currently "
+            "enrolled, active student in the class, plus its homeroom "
+            "and co-teachers. Maintained automatically by "
+            "core.messaging.sync_class_thread; never edited directly by "
+            "a view. One-to-one threads use guardian/teacher instead and "
+            "leave this empty."
+        ),
+    )
+    announcements_only = models.BooleanField(
+        default=False,
+        help_text=(
+            "Class threads only. When on, only the class's teacher(s) "
+            "can post — guardians can still read the thread, just not "
+            "reply. A teacher-facing toggle for a class where two-way "
+            "chat isn't the right fit; off (guardians can post) by "
+            "default, matching how a real classroom group usually works."
+        ),
     )
     created_at = models.DateTimeField(auto_now_add=True)
     last_message_at = models.DateTimeField(
@@ -755,25 +815,64 @@ class MessageThread(UUIDModel):
             models.UniqueConstraint(
                 fields=["guardian", "teacher", "student"],
                 name="unique_thread_per_guardian_teacher_student",
+                condition=models.Q(thread_type="one_to_one"),
+            ),
+            models.UniqueConstraint(
+                fields=["school_class"],
+                name="unique_thread_per_class",
+                condition=models.Q(thread_type="class"),
             ),
         ]
         indexes = [
             models.Index(fields=["school", "guardian"]),
             models.Index(fields=["school", "teacher"]),
+            models.Index(fields=["school", "school_class"]),
         ]
 
+    def clean(self):
+        if self.thread_type == self.ThreadType.CLASS:
+            if not self.school_class_id:
+                raise ValidationError("A class thread needs a school_class.")
+            if self.student_id or self.guardian_id or self.teacher_id:
+                raise ValidationError(
+                    "A class thread shouldn't set student/guardian/teacher — use participants."
+                )
+        else:
+            if self.school_class_id or self.announcements_only:
+                raise ValidationError(
+                    "A one-to-one thread shouldn't set school_class or announcements_only."
+                )
+            if not (self.student_id and self.guardian_id and self.teacher_id):
+                raise ValidationError(
+                    "A one-to-one thread needs student, guardian, and teacher."
+                )
+
     def __str__(self):
+        if self.thread_type == self.ThreadType.CLASS:
+            return f"Class group — {self.school_class}"
         return f"{self.guardian} ↔ {self.teacher} — {self.student}"
 
 
 class Message(UUIDModel):
     """
-    One message within a MessageThread. read_at is meaningful without a
-    separate through-model (unlike AnnouncementRead) because a thread
-    has exactly two participants — there's only ever one possible
-    "other person" who could read a given message, so a single nullable
-    timestamp on the message itself is enough to answer "has the
-    recipient seen this yet."
+    One message within a MessageThread.
+
+    read_at is meaningful without a separate through-model (unlike
+    AnnouncementRead) only on a one-to-one thread: it has exactly two
+    participants, so there's only ever one possible "other person" who
+    could read a given message, and a single nullable timestamp on the
+    message itself is enough to answer "has the recipient seen this
+    yet." A class thread can have many readers, so it doesn't use this
+    field for that purpose at all — see MessageThreadRead, which tracks
+    "read up to" per participant instead, and backs that thread type's
+    unread badge.
+
+    removed_at/removed_by back class-thread moderation
+    (core.views.class_message_remove): a teacher can remove a message,
+    but the row stays and the template swaps its body for a visible
+    "message removed" placeholder rather than deleting it outright, so
+    the rest of the thread doesn't lose context mid-conversation. Not
+    used on one-to-one threads, which have no moderation feature.
     """
 
     thread = models.ForeignKey(MessageThread, on_delete=models.CASCADE, related_name="messages")
@@ -788,7 +887,19 @@ class Message(UUIDModel):
     read_at = models.DateTimeField(
         null=True,
         blank=True,
-        help_text="Set when the other participant in the thread views it.",
+        help_text="One-to-one threads only. Set when the other participant views it.",
+    )
+    removed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Class threads only. Set when the class teacher removes this message.",
+    )
+    removed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="messages_removed",
     )
 
     class Meta:
@@ -799,3 +910,32 @@ class Message(UUIDModel):
 
     def __str__(self):
         return f"{self.sender} in {self.thread} at {self.sent_at}"
+
+
+class MessageThreadRead(UUIDModel):
+    """
+    Per-participant "read up to" marker for a MessageThread — needed
+    once a thread can have more than two participants (class threads),
+    where a single Message.read_at (meaningful for a one-to-one thread,
+    see that field's docstring) can no longer answer "has this reader
+    seen this yet" once there's more than one possible reader. One-to-
+    one threads keep using Message.read_at exactly as before; this only
+    backs the unread badge/read-state for class threads, compared
+    against Message.sent_at rather than tracked message-by-message.
+    """
+
+    thread = models.ForeignKey(
+        MessageThread, on_delete=models.CASCADE, related_name="read_states"
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="thread_read_states"
+    )
+    last_read_at = models.DateTimeField()
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["thread", "user"], name="unique_thread_read_state"),
+        ]
+
+    def __str__(self):
+        return f"{self.user} read {self.thread} up to {self.last_read_at}"

@@ -26,6 +26,7 @@ from .forms import (
     TeacherEditForm,
     TeacherForm,
 )
+from .messaging import _teacher_ids_for_class
 from .models import (
     Announcement,
     AnnouncementRead,
@@ -35,6 +36,7 @@ from .models import (
     HomeworkSubmission,
     Message,
     MessageThread,
+    MessageThreadRead,
     PermissionSlip,
     PermissionSlipResponse,
     School,
@@ -163,12 +165,24 @@ def my_child_detail(request, pk):
     # template hides the section entirely) if the school hasn't turned
     # messaging on, or the child has no class assigned yet.
     connected_teachers = []
+    class_thread = None
     if request.school.messaging_enabled and student.school_class_id:
         connected_teachers = list(
             User.objects.filter(id__in=_connected_teacher_ids_for_student(student)).order_by(
                 "last_name", "first_name"
             )
         )
+        # The child's class-group thread, if this guardian is currently a
+        # participant in it (core.messaging.sync_class_thread keeps that
+        # in sync automatically) — None if the class thread doesn't exist
+        # yet (e.g. no messaging, or the sync hasn't run for some reason),
+        # not just if this guardian happens to have no children in it.
+        class_thread = MessageThread.objects.filter(
+            school=request.school,
+            thread_type=MessageThread.ThreadType.CLASS,
+            school_class_id=student.school_class_id,
+            participants=request.user,
+        ).first()
     return render(
         request,
         "core/my_child_detail.html",
@@ -180,6 +194,7 @@ def my_child_detail(request, pk):
             "fee_notices": fee_notices,
             "permission_slip_responses": permission_slip_responses,
             "connected_teachers": connected_teachers,
+            "class_thread": class_thread,
         },
     )
 
@@ -1268,11 +1283,23 @@ def _connected_guardian_ids_for_student(student):
 def messages_inbox(request):
     """
     Lists the requesting user's own message threads — guardian or
-    teacher, same template either way — ordered by most recent
-    activity, each annotated with the other participant and an unread
-    count. Neither role ever sees another person's threads: the
-    queryset is always filtered to guardian=request.user or
-    teacher=request.user, never "every thread at this school."
+    teacher, one-to-one or class group, same template either way —
+    ordered by most recent activity, each annotated with an "other
+    party" label and an unread count. Neither role ever sees another
+    person's threads or another class's group thread: one-to-one
+    threads are filtered to guardian=request.user or teacher=
+    request.user exactly as before, and class threads are filtered to
+    participants=request.user, which core.messaging.sync_class_thread
+    is what actually keeps trustworthy — never "every thread at this
+    school."
+
+    Unread counting differs by thread type because read-tracking does:
+    a one-to-one thread's Message.read_at only has room for one possible
+    "other reader" (see that field's docstring), so it's used directly;
+    a class thread can have many readers, so it compares each message's
+    sent_at against this user's own MessageThreadRead.last_read_at
+    instead. A removed message never counts as unread either way — there's
+    nothing new to read in a placeholder.
     """
     if request.school is None:
         messages.error(request, "You need to be linked to a school to see messages.")
@@ -1287,20 +1314,40 @@ def messages_inbox(request):
         return render(request, "core/no_access.html", status=403)
 
     is_guardian = request.membership.role == SchoolMembership.Role.GUARDIAN
-    filter_kwargs = {"guardian": request.user} if is_guardian else {"teacher": request.user}
+    one_to_one_kwargs = {"guardian": request.user} if is_guardian else {"teacher": request.user}
     threads = list(
-        MessageThread.objects.filter(school=request.school, **filter_kwargs)
-        .select_related("student", "guardian", "teacher")
+        MessageThread.objects.filter(school=request.school)
+        .filter(
+            Q(thread_type=MessageThread.ThreadType.ONE_TO_ONE, **one_to_one_kwargs)
+            | Q(thread_type=MessageThread.ThreadType.CLASS, participants=request.user)
+        )
+        .select_related("student", "guardian", "teacher", "school_class")
         .prefetch_related("messages")
+        .distinct()
         .order_by("-last_message_at", "-created_at")
     )
+    read_state_by_thread_id = {
+        rs.thread_id: rs.last_read_at
+        for rs in MessageThreadRead.objects.filter(thread__in=threads, user=request.user)
+    }
     for thread in threads:
-        thread.other_party = thread.teacher if is_guardian else thread.guardian
         thread_messages = list(thread.messages.all())
-        thread.unread_count = sum(
-            1 for m in thread_messages if m.sender_id != request.user.id and m.read_at is None
-        )
         thread.last_message = max(thread_messages, key=lambda m: m.sent_at, default=None)
+        if thread.thread_type == MessageThread.ThreadType.CLASS:
+            thread.other_party = None
+            last_read_at = read_state_by_thread_id.get(thread.id)
+            thread.unread_count = sum(
+                1
+                for m in thread_messages
+                if m.sender_id != request.user.id
+                and not m.removed_at
+                and (last_read_at is None or m.sent_at > last_read_at)
+            )
+        else:
+            thread.other_party = thread.teacher if is_guardian else thread.guardian
+            thread.unread_count = sum(
+                1 for m in thread_messages if m.sender_id != request.user.id and m.read_at is None
+            )
 
     return render(request, "core/messages_inbox.html", {"threads": threads})
 
@@ -1351,34 +1398,66 @@ def message_thread_start(request, student_pk, other_user_pk):
 
 
 def _get_message_thread_or_404(request, pk):
+    """
+    Scoped two ways for both thread types: request.membership.role
+    decides which side of a one-to-one thread request.user has to be on
+    (guardian= or teacher=), and for a class thread, participants=
+    request.user is what stands in for that — core.messaging.
+    sync_class_thread is what keeps that participants list trustworthy
+    (added the moment a guardian/teacher connects to the class, removed
+    the moment they don't), so this can't be reached for a class this
+    user was never — or is no longer — part of, even by guessing a pk.
+    """
     if request.membership is None:
         raise Http404
     if request.membership.role == SchoolMembership.Role.GUARDIAN:
-        qs = MessageThread.objects.filter(school=request.school, guardian=request.user)
+        qs = MessageThread.objects.filter(school=request.school).filter(
+            Q(thread_type=MessageThread.ThreadType.ONE_TO_ONE, guardian=request.user)
+            | Q(thread_type=MessageThread.ThreadType.CLASS, participants=request.user)
+        )
     elif request.membership.role == SchoolMembership.Role.TEACHER:
-        qs = MessageThread.objects.filter(school=request.school, teacher=request.user)
+        qs = MessageThread.objects.filter(school=request.school).filter(
+            Q(thread_type=MessageThread.ThreadType.ONE_TO_ONE, teacher=request.user)
+            | Q(thread_type=MessageThread.ThreadType.CLASS, participants=request.user)
+        )
     else:
         qs = MessageThread.objects.none()
     return get_object_or_404(
-        qs.select_related("student", "guardian", "teacher"), pk=pk
+        qs.select_related("student", "guardian", "teacher", "school_class").distinct(), pk=pk
     )
 
 
 @login_required
 def message_thread_detail(request, pk):
     """
-    Shows one thread's full message history plus a composer, and marks
-    any messages sent by the other participant as read the moment this
-    page is viewed — the read-receipt equivalent of AnnouncementRead,
-    just a single timestamp field rather than a through-model, since a
-    thread only ever has one possible "other reader" (see Message's
-    docstring).
+    Shows one thread's full message history plus a composer (unless a
+    class thread's announcements_only is on and this user is a guardian,
+    in which case the composer is hidden — enforced here, not just in
+    the template, same "never trust the UI alone" posture as everywhere
+    else access is decided), and records that this user has seen the
+    thread up to now.
+
+    Read-tracking branches by thread type: a one-to-one thread marks any
+    message sent by the other participant as read directly on the
+    message (Message.read_at — see its docstring for why that only
+    works with exactly two possible participants); a class thread
+    instead upserts this user's own MessageThreadRead row, since there's
+    no single "the other reader" to stamp a message with once a thread
+    can have many.
     """
     if request.school is None or not request.school.messaging_enabled:
         raise Http404
     thread = _get_message_thread_or_404(request, pk)
+    is_class = thread.thread_type == MessageThread.ThreadType.CLASS
+    is_teacher = request.membership.role == SchoolMembership.Role.TEACHER
+    can_post = not (is_class and thread.announcements_only and not is_teacher)
 
     if request.method == "POST":
+        if not can_post:
+            messages.error(
+                request, "This thread is announcements only — only the teacher can post."
+            )
+            return redirect("core:message_thread_detail", pk=thread.pk)
         body = request.POST.get("body", "").strip()
         if not body:
             messages.error(request, "Type a message before sending.")
@@ -1389,23 +1468,99 @@ def message_thread_detail(request, pk):
         return redirect("core:message_thread_detail", pk=thread.pk)
 
     thread_messages = list(thread.messages.select_related("sender").order_by("sent_at"))
-    unread_ids = [
-        m.pk for m in thread_messages if m.sender_id != request.user.id and m.read_at is None
-    ]
-    if unread_ids:
-        now = timezone.now()
-        Message.objects.filter(pk__in=unread_ids).update(read_at=now)
-        for m in thread_messages:
-            if m.pk in unread_ids:
-                m.read_at = now
+    other_party = None
+    participants = []
 
-    other_party = thread.teacher if thread.guardian_id == request.user.id else thread.guardian
+    if is_class:
+        MessageThreadRead.objects.update_or_create(
+            thread=thread, user=request.user, defaults={"last_read_at": timezone.now()}
+        )
+        participants = list(thread.participants.order_by("last_name", "first_name"))
+    else:
+        unread_ids = [
+            m.pk for m in thread_messages if m.sender_id != request.user.id and m.read_at is None
+        ]
+        if unread_ids:
+            now = timezone.now()
+            Message.objects.filter(pk__in=unread_ids).update(read_at=now)
+            for m in thread_messages:
+                if m.pk in unread_ids:
+                    m.read_at = now
+        other_party = thread.teacher if thread.guardian_id == request.user.id else thread.guardian
 
     return render(
         request,
         "core/message_thread_detail.html",
-        {"thread": thread, "thread_messages": thread_messages, "other_party": other_party},
+        {
+            "thread": thread,
+            "thread_messages": thread_messages,
+            "other_party": other_party,
+            "participants": participants,
+            "is_class": is_class,
+            "can_post": can_post,
+            "can_moderate": is_class and is_teacher,
+        },
     )
+
+
+@login_required
+@role_required(SchoolMembership.Role.TEACHER)
+@require_POST
+def class_message_remove(request, pk, message_pk):
+    """
+    Teacher-only "remove message" moderation action for a class thread
+    (proposal: "Class Group Messaging" — "the teacher stays the
+    backstop, consistent with how a real classroom group works").
+    Sets Message.removed_at/removed_by rather than deleting the row —
+    the template swaps a removed message's body for a visible
+    placeholder — so the rest of the thread doesn't lose context
+    mid-conversation. Idempotent: removing an already-removed message a
+    second time is a no-op, not an error.
+
+    Re-derives thread membership fresh via _get_message_thread_or_404
+    rather than trusting that a pk in the URL is one this teacher was
+    actually shown a "Remove" button for, and separately checks
+    thread_type — a one-to-one thread has no moderation feature, so this
+    can't be used against one even if a class-thread message_pk-shaped
+    URL were guessed against it.
+    """
+    if request.school is None or not request.school.messaging_enabled:
+        raise Http404
+    thread = _get_message_thread_or_404(request, pk)
+    if thread.thread_type != MessageThread.ThreadType.CLASS:
+        raise Http404
+    message = get_object_or_404(Message.objects.filter(thread=thread), pk=message_pk)
+    if not message.removed_at:
+        message.removed_at = timezone.now()
+        message.removed_by = request.user
+        message.save(update_fields=["removed_at", "removed_by"])
+    messages.success(request, "Message removed.")
+    return redirect("core:message_thread_detail", pk=thread.pk)
+
+
+@login_required
+@role_required(SchoolMembership.Role.TEACHER)
+@require_POST
+def class_thread_toggle_announcements_only(request, pk):
+    """
+    Teacher-only per-class toggle between the default (guardians can
+    post) and "announcements only" (teacher posts, guardians read) —
+    the escape hatch the proposal calls out for "a class's dynamics"
+    that don't suit open two-way chat. A plain toggle, not a form:
+    there's exactly one bit to flip and no other field involved.
+    """
+    if request.school is None or not request.school.messaging_enabled:
+        raise Http404
+    thread = _get_message_thread_or_404(request, pk)
+    if thread.thread_type != MessageThread.ThreadType.CLASS:
+        raise Http404
+    thread.announcements_only = not thread.announcements_only
+    thread.save(update_fields=["announcements_only"])
+    if thread.announcements_only:
+        messages.success(request, "Switched to announcements only — only you can post now.")
+    else:
+        messages.success(request, "Guardians can post in this thread again.")
+    return redirect("core:message_thread_detail", pk=thread.pk)
 
 
 @login_required
@@ -1715,10 +1870,34 @@ def class_detail(request, pk):
         students = students.filter(is_active=True)
     students = students.order_by("last_name", "first_name")
 
+    # This class's group thread, if it exists and the requesting user is
+    # a connected teacher on it (homeroom or co-teacher) — an admin
+    # viewing the same page doesn't get a link, since class messaging is
+    # scoped to teacher + guardians only (proposal: "Class Group
+    # Messaging"), the same way admins don't appear in
+    # _teacher_ids_for_class at all.
+    class_thread = None
+    if (
+        request.school
+        and request.school.messaging_enabled
+        and request.membership.role == SchoolMembership.Role.TEACHER
+        and request.user.id in _teacher_ids_for_class(school_class)
+    ):
+        class_thread = MessageThread.objects.filter(
+            school=request.school,
+            thread_type=MessageThread.ThreadType.CLASS,
+            school_class=school_class,
+        ).first()
+
     return render(
         request,
         "core/class_detail.html",
-        {"school_class": school_class, "students": students, "show_archived": show_archived},
+        {
+            "school_class": school_class,
+            "students": students,
+            "show_archived": show_archived,
+            "class_thread": class_thread,
+        },
     )
 
 

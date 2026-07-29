@@ -11,7 +11,7 @@
   <div>
     <span class="page-header__eyebrow">Communication</span>
     <h1>Messages</h1>
-    <p class="page-header__sub">Direct conversations with {% if request.membership.role == "guardian" %}your children's teachers{% else %}guardians{% endif %} at {{ request.school.name }}.</p>
+    <p class="page-header__sub">Direct conversations with {% if request.membership.role == "guardian" %}your children's teachers{% else %}guardians{% endif %}, and any class group threads you're part of, at {{ request.school.name }}.</p>
   </div>
 </div>
 
@@ -24,19 +24,27 @@
       </div>
       <div class="list-row__body">
         <div class="list-row__title">
-          {{ thread.other_party.get_full_name|default:thread.other_party.username }}
+          {% if thread.thread_type == "class" %}
+            {{ thread.school_class.name }} — Class Group
+          {% else %}
+            {{ thread.other_party.get_full_name|default:thread.other_party.username }}
+          {% endif %}
           {% if thread.unread_count %}
             <span class="tag tag--critical"><span class="tag__eyelet"></span>{{ thread.unread_count }} unread</span>
           {% endif %}
         </div>
         <div class="list-row__meta">
-          Re: {{ thread.student.first_name }} {{ thread.student.last_name }}
+          {% if thread.thread_type == "class" %}
+            Class group{% if thread.announcements_only %} · Announcements only{% endif %}
+          {% else %}
+            Re: {{ thread.student.first_name }} {{ thread.student.last_name }}
+          {% endif %}
           {% if thread.last_message %}
             · {{ thread.last_message.sent_at|date:"M j, Y, g:i a" }}
           {% endif %}
         </div>
         {% if thread.last_message %}
-        <p style="margin: 6px 0 0; color: var(--ink-dim);">{{ thread.last_message.body|truncatechars:120 }}</p>
+        <p style="margin: 6px 0 0; color: var(--ink-dim);">{% if thread.last_message.removed_at %}<em>Message removed.</em>{% else %}{{ thread.last_message.body|truncatechars:120 }}{% endif %}</p>
         {% else %}
         <p style="margin: 6px 0 0; color: var(--ink-dim);">No messages yet — say hello.</p>
         {% endif %}

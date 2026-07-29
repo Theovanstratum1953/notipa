@@ -1,19 +1,43 @@
 {% extends "base.html" %}
 
-{% block title %}{{ other_party.get_full_name|default:other_party.username }} — Messages — Notipa{% endblock %}
+{% block title %}{% if is_class %}{{ thread.school_class.name }} — Class Group{% else %}{{ other_party.get_full_name|default:other_party.username }}{% endif %} — Messages — Notipa{% endblock %}
 
 {% block breadcrumb %}
-  <a href="{% url 'core:messages' %}">Messages</a><span class="topbar__breadcrumb-sep">/</span><span class="topbar__breadcrumb-current">{{ other_party.get_full_name|default:other_party.username }}</span>
+  <a href="{% url 'core:messages' %}">Messages</a><span class="topbar__breadcrumb-sep">/</span><span class="topbar__breadcrumb-current">{% if is_class %}{{ thread.school_class.name }}{% else %}{{ other_party.get_full_name|default:other_party.username }}{% endif %}</span>
 {% endblock %}
 
 {% block content %}
 <div class="page-header">
   <div>
     <span class="page-header__eyebrow">Communication</span>
-    <h1>{{ other_party.get_full_name|default:other_party.username }}</h1>
-    <p class="page-header__sub">Re: {{ thread.student.first_name }} {{ thread.student.last_name }}</p>
+    <h1>{% if is_class %}{{ thread.school_class.name }} — Class Group{% else %}{{ other_party.get_full_name|default:other_party.username }}{% endif %}</h1>
+    <p class="page-header__sub">
+      {% if is_class %}
+        {{ thread.school_class.academic_year }} · {{ participants|length }} participant{{ participants|length|pluralize }}
+        {% if thread.announcements_only %} · <span class="tag tag--neutral"><span class="tag__eyelet"></span>Announcements only</span>{% endif %}
+      {% else %}
+        Re: {{ thread.student.first_name }} {{ thread.student.last_name }}
+      {% endif %}
+    </p>
   </div>
+  {% if can_moderate %}
+  <form method="post" action="{% url 'core:class_thread_toggle_announcements_only' thread.pk %}">
+    {% csrf_token %}
+    <button type="submit" class="btn btn--secondary">
+      {% if thread.announcements_only %}Allow guardians to post{% else %}Switch to announcements only{% endif %}
+    </button>
+  </form>
+  {% endif %}
 </div>
+
+{% if is_class and participants %}
+<div class="card card--pad-lg" style="max-width: 640px; margin-bottom: 20px;">
+  <h2 style="margin-top:0;">Participants</h2>
+  <p style="margin:0; color: var(--ink-dim);">
+    {% for p in participants %}{{ p.get_full_name|default:p.username }}{% if not forloop.last %}, {% endif %}{% endfor %}
+  </p>
+</div>
+{% endif %}
 
 <div class="card card--pad-lg" style="max-width: 640px; margin-bottom: 20px;">
   {% for m in thread_messages %}
@@ -21,17 +45,28 @@
     <div class="list-row__meta">
       <strong style="color: var(--ink);">{% if m.sender_id == request.user.id %}You{% else %}{{ m.sender.get_full_name|default:m.sender.username }}{% endif %}</strong>
       · {{ m.sent_at|date:"M j, Y, g:i a" }}
-      {% if m.sender_id == request.user.id %}
+      {% if not is_class and m.sender_id == request.user.id %}
         {% if m.read_at %} · Seen{% else %} · Sent{% endif %}
       {% endif %}
     </div>
+    {% if m.removed_at %}
+    <p class="text-dim" style="margin: 4px 0 0;"><em>Message removed{% if m.removed_by %} by {{ m.removed_by.get_full_name|default:m.removed_by.username }}{% endif %}.</em></p>
+    {% else %}
     <p style="margin: 4px 0 0;">{{ m.body|linebreaksbr }}</p>
+    {% if can_moderate %}
+    <form method="post" action="{% url 'core:class_message_remove' thread.pk m.pk %}" style="margin-top: 4px;" onsubmit="return confirm('Remove this message? It stays visible as removed to the rest of the thread.');">
+      {% csrf_token %}
+      <button type="submit" class="btn btn--danger btn--sm">Remove</button>
+    </form>
+    {% endif %}
+    {% endif %}
   </div>
   {% empty %}
   <p class="text-dim" style="margin:0;">No messages yet — say hello.</p>
   {% endfor %}
 </div>
 
+{% if can_post %}
 <div class="card card--pad-lg" style="max-width: 640px;">
   <form method="post">
     {% csrf_token %}
@@ -44,4 +79,9 @@
     </div>
   </form>
 </div>
+{% else %}
+<div class="card card--pad-lg" style="max-width: 640px;">
+  <p class="text-dim" style="margin:0;">This thread is announcements only — only the teacher can post here.</p>
+</div>
+{% endif %}
 {% endblock %}

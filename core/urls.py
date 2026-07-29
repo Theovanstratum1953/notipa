@@ -127,4 +127,14 @@ urlpatterns = [
         name="message_thread_start",
     ),
     path("messages/<uuid:pk>/", views.message_thread_detail, name="message_thread_detail"),
+    path(
+        "messages/<uuid:pk>/announcements-only/",
+        views.class_thread_toggle_announcements_only,
+        name="class_thread_toggle_announcements_only",
+    ),
+    path(
+        "messages/<uuid:pk>/messages/<uuid:message_pk>/remove/",
+        views.class_message_remove,
+        name="class_message_remove",
+    ),
 ]
