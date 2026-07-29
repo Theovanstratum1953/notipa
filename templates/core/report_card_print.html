@@ -1,0 +1,72 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Report Card — {{ student.first_name }} {{ student.last_name }} — {{ term.name }}</title>
+<style>
+  /* Deliberately plain CSS, no app chrome and no PDF-generation
+     dependency (roadmap: "Print output is plain CSS ... to keep the
+     self-hosted footprint light") — a guardian's browser print/
+     save-as-PDF does the rest. */
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+    color: #1a1a1a;
+    max-width: 720px;
+    margin: 40px auto;
+    padding: 0 24px;
+    line-height: 1.5;
+  }
+  h1 { font-size: 22px; margin-bottom: 4px; }
+  .sub { color: #666; margin-top: 0; margin-bottom: 24px; }
+  table { width: 100%; border-collapse: collapse; margin-bottom: 24px; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid #ddd; }
+  th { font-size: 13px; text-transform: uppercase; letter-spacing: 0.03em; color: #666; }
+  .comment-box { border: 1px solid #ddd; border-radius: 6px; padding: 16px; white-space: pre-wrap; }
+  .attendance-line { margin-bottom: 24px; }
+  .no-print { margin-bottom: 24px; }
+  @media print {
+    .no-print { display: none; }
+    body { margin: 0; }
+  }
+</style>
+</head>
+<body>
+  <div class="no-print">
+    <button onclick="window.print()">Print / Save as PDF</button>
+  </div>
+
+  <h1>{{ student.first_name }} {{ student.last_name }}</h1>
+  <p class="sub">{{ term.name }} — {{ term.start_date|date:"M j" }} to {{ term.end_date|date:"M j, Y" }}</p>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Subject</th>
+        <th>Grade / Mark</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for entry in entries %}
+      <tr>
+        <td>{{ entry.subject }}</td>
+        <td>{{ entry.grade }}</td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="2">No subjects recorded.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <p class="attendance-line">
+    <strong>Attendance this term:</strong>
+    Present {{ attendance_summary.present }} · Absent {{ attendance_summary.absent }} · Late {{ attendance_summary.late }}
+  </p>
+
+  {% if report.comment %}
+  <h3>Comment</h3>
+  <div class="comment-box">{{ report.comment }}</div>
+  {% endif %}
+</body>
+</html>

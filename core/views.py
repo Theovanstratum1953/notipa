@@ -20,6 +20,8 @@ from .forms import (
     HomeworkForm,
     HomeworkSubmissionForm,
     PermissionSlipForm,
+    ReportCardForm,
+    report_card_entry_formset_factory,
     SchoolCalendarEventForm,
     SchoolClassForm,
     SchoolForm,
@@ -28,6 +30,7 @@ from .forms import (
     StudentLinkForm,
     TeacherEditForm,
     TeacherForm,
+    TermForm,
 )
 from .messaging import (
     _teacher_ids_for_class,
@@ -47,11 +50,15 @@ from .models import (
     MessageThreadRead,
     PermissionSlip,
     PermissionSlipResponse,
+    ReportCard,
+    ReportCardEntry,
+    ReportCardRead,
     School,
     SchoolCalendarEvent,
     SchoolClass,
     SchoolMembership,
     Student,
+    Term,
 )
 from .permissions import role_required, scope_to_school, superuser_required
 
@@ -202,6 +209,15 @@ def my_child_detail(request, pk):
     # this page; the full history lives on my_child_attendance.
     attendance_records = AttendanceRecord.objects.filter(student=student).order_by("-date")[:5]
 
+    # Recent published report cards (roadmap: Report Cards per Student)
+    # — same "own child only" scoping; the full history lives on
+    # my_child_report_cards.
+    report_cards = (
+        ReportCard.objects.filter(student=student, status=ReportCard.Status.PUBLISHED)
+        .select_related("term")
+        .order_by("-term__start_date")[:5]
+    )
+
     return render(
         request,
         "core/my_child_detail.html",
@@ -215,6 +231,7 @@ def my_child_detail(request, pk):
             "connected_teachers": connected_teachers,
             "class_thread": class_thread,
             "attendance_records": attendance_records,
+            "report_cards": report_cards,
         },
     )
 
@@ -1497,6 +1514,386 @@ def my_child_attendance(request, pk):
         request,
         "core/my_child_attendance.html",
         {"student": student, "records": records, "summary": summary},
+    )
+
+
+# ---------------------------------------------------------------------
+# Report Cards — a term-by-term academic report per student (roadmap:
+# "Report Cards per Student"), replacing "the photocopied slip sent
+# home in a backpack" rather than becoming a gradebook. Two pieces:
+# Term (admin-managed, school-wide) and ReportCard/ReportCardEntry
+# (teacher-authored, one per student per term, draft-then-published
+# the same way Announcements are). A teacher is scoped to their own
+# class(es) here — unlike Attendance's deliberately permissive "any
+# teacher can see any class" — since report-card content is graded
+# academic judgement about a specific student, not a daily checklist;
+# an admin can still do it "on a teacher's behalf" per the roadmap, so
+# admin access isn't restricted the same way.
+# ---------------------------------------------------------------------
+
+def _classes_taught_by(request):
+    """
+    The SchoolClass queryset this request is allowed to enter report
+    cards for: every active class at the school for an admin ("on a
+    teacher's behalf"), or only the classes a teacher actually teaches
+    (homeroom or co-teacher) for anyone else. Mirrors
+    core.messaging._teacher_ids_for_class in reverse — that helper
+    finds the teachers for a class, this finds the classes for a
+    teacher.
+    """
+    classes = scope_to_school(SchoolClass.objects.filter(is_active=True), request)
+    if request.membership.role == SchoolMembership.Role.ADMIN:
+        return classes
+    return classes.filter(
+        Q(homeroom_teacher__user=request.user) | Q(additional_teachers__user=request.user)
+    ).distinct()
+
+
+def _get_taught_class_or_404(request, pk):
+    return get_object_or_404(_classes_taught_by(request), pk=pk)
+
+
+@login_required
+@role_required(SchoolMembership.Role.ADMIN)
+def term_list(request):
+    """Admin-only term management screen — the roadmap's "Term
+    management screen for admins." No read-only view for teachers/
+    guardians the way the school calendar has one: a term only matters
+    to them as a dropdown on the report-card screens, not as its own
+    page to browse."""
+    terms = scope_to_school(Term.objects.all(), request).order_by("-start_date")
+    return render(request, "core/term_list.html", {"terms": terms})
+
+
+@login_required
+@role_required(SchoolMembership.Role.ADMIN)
+def term_new(request):
+    if request.school is None:
+        messages.error(request, "You need to be linked to a school before you can add a term.")
+        return redirect("core:dashboard")
+
+    if request.method == "POST":
+        form = TermForm(request.POST, school=request.school)
+        if form.is_valid():
+            term = form.save()
+            messages.success(request, f"“{term.name}” added.")
+            return redirect("core:terms")
+    else:
+        form = TermForm(school=request.school)
+
+    return render(request, "core/term_form.html", {"form": form})
+
+
+def _get_term_or_404(request, pk):
+    return get_object_or_404(scope_to_school(Term.objects.all(), request), pk=pk)
+
+
+@login_required
+@role_required(SchoolMembership.Role.ADMIN)
+def term_edit(request, pk):
+    term = _get_term_or_404(request, pk)
+
+    if request.method == "POST":
+        form = TermForm(request.POST, instance=term, school=request.school)
+        if form.is_valid():
+            form.save()
+            messages.success(request, f"“{term.name}” updated.")
+            return redirect("core:terms")
+    else:
+        form = TermForm(instance=term, school=request.school)
+
+    return render(request, "core/term_form.html", {"form": form, "term": term})
+
+
+@login_required
+@role_required(SchoolMembership.Role.ADMIN)
+@require_POST
+def term_delete(request, pk):
+    term = _get_term_or_404(request, pk)
+    name = term.name
+    term.delete()
+    messages.success(request, f"“{name}” deleted.")
+    return redirect("core:terms")
+
+
+@login_required
+@role_required(SchoolMembership.Role.ADMIN, SchoolMembership.Role.TEACHER)
+def report_cards_classes_list(request):
+    """Landing page for Report Cards: every class this user can enter
+    reports for (core._classes_taught_by), same "pick a class" shape as
+    Attendance's equivalent landing page."""
+    classes = list(_classes_taught_by(request).order_by("name"))
+    return render(request, "core/report_cards_classes_list.html", {"classes": classes})
+
+
+def _attendance_summary_for_term(student, term):
+    """Present/absent/late counts for a student across a term's date
+    range — the roadmap's "attendance summary ... pulled in
+    automatically once attendance tracking exists." Computed on the fly
+    from core.models.AttendanceRecord, never re-entered by hand and
+    never stored on the report itself, so it always reflects whatever
+    attendance has actually been recorded up to the moment the report
+    is viewed."""
+    counts = {"present": 0, "absent": 0, "late": 0}
+    rows = AttendanceRecord.objects.filter(
+        student=student, date__gte=term.start_date, date__lte=term.end_date
+    ).values_list("status", flat=True)
+    for status in rows:
+        counts[status] += 1
+    return counts
+
+
+@login_required
+@role_required(SchoolMembership.Role.ADMIN, SchoolMembership.Role.TEACHER)
+def report_cards_roster(request, pk):
+    """
+    One class's report-card roster for a selected term (?term=): every
+    active student, with their report's current status (none / draft /
+    published) and a link into report_card_edit. Term defaults to the
+    school's most recently started term; if the school has no terms
+    yet, this points admins at term_new instead of showing an empty
+    roster (there's genuinely nothing to enter until a term exists).
+    """
+    school_class = _get_taught_class_or_404(request, pk)
+    terms = list(scope_to_school(Term.objects.all(), request).order_by("-start_date"))
+
+    if not terms:
+        return render(
+            request, "core/report_cards_roster.html",
+            {"school_class": school_class, "terms": terms, "term": None},
+        )
+
+    term_id = request.GET.get("term")
+    term = next((t for t in terms if str(t.id) == term_id), None) or terms[0]
+
+    students = list(school_class.students.filter(is_active=True).order_by("last_name", "first_name"))
+    reports_by_student_id = {
+        r.student_id: r
+        for r in ReportCard.objects.filter(term=term, student__in=students)
+    }
+    roster = [
+        {"student": s, "report": reports_by_student_id.get(s.id)} for s in students
+    ]
+    draft_count = sum(1 for row in roster if row["report"] and row["report"].status == ReportCard.Status.DRAFT)
+
+    return render(
+        request,
+        "core/report_cards_roster.html",
+        {
+            "school_class": school_class,
+            "terms": terms,
+            "term": term,
+            "roster": roster,
+            "draft_count": draft_count,
+        },
+    )
+
+
+@login_required
+@role_required(SchoolMembership.Role.ADMIN, SchoolMembership.Role.TEACHER)
+@require_POST
+def report_cards_publish_all(request, pk, term_pk):
+    """Bulk "publish all drafts for this term" — the roadmap's own
+    phrasing, since a teacher will typically finish a whole class at
+    once rather than publishing report by report."""
+    school_class = _get_taught_class_or_404(request, pk)
+    term = _get_term_or_404(request, term_pk)
+    updated = ReportCard.objects.filter(
+        school_class=school_class, term=term, status=ReportCard.Status.DRAFT
+    ).update(status=ReportCard.Status.PUBLISHED, published_at=timezone.now())
+    if updated:
+        messages.success(request, f"Published {updated} report{'s' if updated != 1 else ''} for {term.name}.")
+    else:
+        messages.error(request, "No draft reports to publish for this term.")
+    return redirect(f"{reverse('core:report_cards_roster', args=[pk])}?term={term.pk}")
+
+
+@login_required
+@role_required(SchoolMembership.Role.ADMIN, SchoolMembership.Role.TEACHER)
+def report_card_edit(request, pk, term_pk, student_pk):
+    """
+    Create-or-edit a single student's report for a term: a comment
+    field (ReportCardForm) plus a formset of subject/grade rows
+    (ReportCardEntryFormSet) — "a configurable set of subject/grade
+    rows" the roadmap describes, not a fixed schema. Two submit
+    buttons, "save_draft" and "publish" (checked in POST), decide
+    whether this leaves the report as a draft or makes it visible to
+    the student's guardians; there's no form field for status a
+    teacher could flip by accident while editing the comment.
+
+    On first creating a report (no entries yet) for this class/term,
+    the subject rows are pre-filled by copying subject names (blank
+    grades) from any sibling report already started for the same
+    class/term — the roadmap's "ability to duplicate the subject list
+    across students in a class to speed up entry" — without needing a
+    separate "copy from" control.
+    """
+    school_class = _get_taught_class_or_404(request, pk)
+    term = _get_term_or_404(request, term_pk)
+    student = get_object_or_404(school_class.students.filter(is_active=True), pk=student_pk)
+
+    report, created = ReportCard.objects.get_or_create(
+        student=student, term=term,
+        defaults={"school_class": school_class, "created_by": request.user},
+    )
+
+    initial_entries = None
+    if created and not report.entries.exists():
+        sibling = (
+            ReportCard.objects.filter(school_class=school_class, term=term)
+            .exclude(pk=report.pk)
+            .prefetch_related("entries")
+            .first()
+        )
+        if sibling and sibling.entries.exists():
+            initial_entries = [
+                {"subject": e.subject, "grade": "", "order": e.order}
+                for e in sibling.entries.order_by("order", "subject")
+            ]
+
+    if request.method == "POST":
+        # extra doesn't matter for a bound (POST) formset — the actual
+        # number of forms to parse comes from the submitted TOTAL_FORMS
+        # management field, not this factory argument — so the plain
+        # default is fine here regardless of what was shown on the GET
+        # that produced this submission.
+        formset_class = report_card_entry_formset_factory()
+        form = ReportCardForm(request.POST, instance=report)
+        formset = formset_class(request.POST, instance=report)
+        if form.is_valid() and formset.is_valid():
+            form.save()
+            formset.save()
+            report.school_class = school_class
+            report.created_by = request.user
+            if "publish" in request.POST:
+                report.status = ReportCard.Status.PUBLISHED
+                if not report.published_at:
+                    report.published_at = timezone.now()
+                report.save()
+                messages.success(
+                    request, f"Report for {student.first_name} {student.last_name} published."
+                )
+            else:
+                report.status = ReportCard.Status.DRAFT
+                report.save()
+                messages.success(
+                    request, f"Draft saved for {student.first_name} {student.last_name}."
+                )
+            return redirect(f"{reverse('core:report_cards_roster', args=[pk])}?term={term.pk}")
+    else:
+        form = ReportCardForm(instance=report)
+        # How many blank rows to start with: exactly enough to hold a
+        # copied sibling subject list, a handful if this report already
+        # has its own saved entries (the "+ Add Subject Row" button
+        # covers anything more — no need to pad the page with rows that
+        # would just reappear blank, unsaved, every time this page is
+        # reopened), or a more generous starting count for a genuinely
+        # new report with nothing entered and no sibling to copy from.
+        if initial_entries:
+            extra = len(initial_entries)
+        elif report.entries.exists():
+            extra = 3
+        else:
+            extra = 8
+        formset_class = report_card_entry_formset_factory(extra=extra)
+        formset = formset_class(
+            instance=report, initial=initial_entries if initial_entries else None
+        )
+
+    attendance_summary = _attendance_summary_for_term(student, term)
+
+    return render(
+        request,
+        "core/report_card_form.html",
+        {
+            "school_class": school_class,
+            "term": term,
+            "student": student,
+            "report": report,
+            "form": form,
+            "formset": formset,
+            "attendance_summary": attendance_summary,
+        },
+    )
+
+
+def _can_view_report_card(request, report):
+    """A report card is viewable by: an admin/teacher who can enter
+    reports for its class (_classes_taught_by), or a guardian actually
+    linked to its student — and then only once it's published. Shared
+    by report_card_view and my_child_report_cards' link-building, so
+    there's exactly one place this rule lives."""
+    if request.membership.role in (SchoolMembership.Role.ADMIN, SchoolMembership.Role.TEACHER):
+        return _classes_taught_by(request).filter(pk=report.school_class_id).exists()
+    if request.membership.role == SchoolMembership.Role.GUARDIAN:
+        return report.status == ReportCard.Status.PUBLISHED and GuardianLink.objects.filter(
+            guardian=request.user, student=report.student
+        ).exists()
+    return False
+
+
+@login_required
+def report_card_view(request, pk):
+    """
+    Print-friendly single-report page (core/report_card_print.html —
+    clean CSS, no app chrome, the roadmap's "guardian can save or print
+    a copy"). Reachable by a teacher/admin who could have entered this
+    report, or by one of the student's own linked guardians once it's
+    published — never a guardian browsing by guessing a report id for
+    an unrelated (or still-draft) student, which is exactly what
+    _can_view_report_card checks. Viewing as a guardian records a
+    ReportCardRead, the read-tracking the roadmap's Overview mentions.
+    """
+    report = get_object_or_404(
+        ReportCard.objects.select_related("student", "term", "school_class").prefetch_related("entries"),
+        pk=pk,
+    )
+    if request.school is None or report.school_class.school_id != request.school.id:
+        return render(request, "core/no_access.html", status=403)
+    if not _can_view_report_card(request, report):
+        return render(request, "core/no_access.html", status=403)
+
+    if request.membership.role == SchoolMembership.Role.GUARDIAN:
+        ReportCardRead.objects.get_or_create(report_card=report, guardian=request.user)
+
+    attendance_summary = _attendance_summary_for_term(report.student, report.term)
+    return render(
+        request,
+        "core/report_card_print.html",
+        {
+            "report": report,
+            "student": report.student,
+            "term": report.term,
+            "entries": report.entries.all(),
+            "attendance_summary": attendance_summary,
+        },
+    )
+
+
+@login_required
+@role_required(SchoolMembership.Role.GUARDIAN)
+def my_child_report_cards(request, pk):
+    """
+    A guardian's own child's published report cards, newest term
+    first — the roadmap's "Report card view on a student's profile,
+    showing published reports by term, newest first." Scoped the same
+    two ways as my_child_attendance: role_required(GUARDIAN), plus the
+    GuardianLink lookup below restricting this to a student the
+    guardian is actually linked to.
+    """
+    link = get_object_or_404(
+        GuardianLink.objects.filter(student__school=request.school),
+        guardian=request.user,
+        student_id=pk,
+    )
+    student = link.student
+    reports = (
+        ReportCard.objects.filter(student=student, status=ReportCard.Status.PUBLISHED)
+        .select_related("term")
+        .order_by("-term__start_date")
+    )
+    return render(
+        request, "core/my_child_report_cards.html", {"student": student, "reports": reports}
     )
 
 

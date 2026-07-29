@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+
+{% block title %}Report Cards — Notipa{% endblock %}
+
+{% block breadcrumb %}
+  <span class="topbar__breadcrumb-current">Report Cards</span>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <span class="page-header__eyebrow">Communication</span>
+    <h1>Report Cards</h1>
+    <p class="page-header__sub">
+      Pick a class to enter or review its report cards for a term.
+    </p>
+  </div>
+  {% if request.membership.role == "admin" %}
+  <a href="{% url 'core:terms' %}" class="btn btn--secondary">Manage Terms</a>
+  {% endif %}
+</div>
+
+<div class="table-wrap">
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>Class</th>
+        <th>Academic Year</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for c in classes %}
+      <tr>
+        <td class="cell--title"><a href="{% url 'core:class_detail' c.pk %}">{{ c.name }}</a></td>
+        <td>{{ c.academic_year }}</td>
+        <td>
+          <a href="{% url 'core:report_cards_roster' c.pk %}" class="btn btn--primary btn--sm">Open Report Cards</a>
+        </td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="3"><div class="empty-list">No classes to enter report cards for yet.</div></td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

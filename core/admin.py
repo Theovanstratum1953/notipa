@@ -14,12 +14,16 @@ from .models import (
     MessageThreadRead,
     PermissionSlip,
     PermissionSlipResponse,
+    ReportCard,
+    ReportCardEntry,
+    ReportCardRead,
     School,
     SchoolCalendarEvent,
     SchoolClass,
     SchoolMembership,
     Student,
     StudentRecord,
+    Term,
     User,
 )
 
@@ -176,6 +180,34 @@ class AttendanceRecordAdmin(admin.ModelAdmin):
     list_filter = ("school_class", "status")
     search_fields = ("student__first_name", "student__last_name", "school_class__name")
     autocomplete_fields = ["student", "school_class", "recorded_by"]
+
+
+@admin.register(Term)
+class TermAdmin(admin.ModelAdmin):
+    list_display = ("name", "school", "start_date", "end_date")
+    list_filter = ("school",)
+    search_fields = ("name",)
+    autocomplete_fields = ["school"]
+
+
+class ReportCardEntryInline(admin.TabularInline):
+    model = ReportCardEntry
+    extra = 0
+
+
+class ReportCardReadInline(admin.TabularInline):
+    model = ReportCardRead
+    extra = 0
+    autocomplete_fields = ["guardian"]
+
+
+@admin.register(ReportCard)
+class ReportCardAdmin(admin.ModelAdmin):
+    list_display = ("student", "term", "school_class", "status", "published_at", "created_by")
+    list_filter = ("term", "status", "school_class")
+    search_fields = ("student__first_name", "student__last_name")
+    autocomplete_fields = ["student", "term", "school_class", "created_by"]
+    inlines = [ReportCardEntryInline, ReportCardReadInline]
 
 
 @admin.register(SchoolCalendarEvent)

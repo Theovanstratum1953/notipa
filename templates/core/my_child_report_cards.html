@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+
+{% block title %}Report Cards — {{ student.first_name }} {{ student.last_name }} — Notipa{% endblock %}
+
+{% block breadcrumb %}
+  <a href="{% url 'core:my_child_detail' student.pk %}">{{ student.first_name }} {{ student.last_name }}</a><span class="topbar__breadcrumb-sep">/</span><span class="topbar__breadcrumb-current">Report Cards</span>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <span class="page-header__eyebrow">Your Children</span>
+    <h1>{{ student.first_name }} {{ student.last_name }} — Report Cards</h1>
+    <p class="page-header__sub">Published reports, newest term first.</p>
+  </div>
+</div>
+
+<div class="table-wrap">
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>Term</th>
+        <th>Published</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in reports %}
+      <tr>
+        <td class="cell--title">{{ r.term.name }}</td>
+        <td>{{ r.published_at|date:"M j, Y" }}</td>
+        <td>
+          <a href="{% url 'core:report_card_view' r.pk %}" class="btn btn--secondary btn--sm" target="_blank" rel="noopener">View / Print</a>
+        </td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="3"><div class="empty-list">No report cards published yet.</div></td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

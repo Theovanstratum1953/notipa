@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+
+{% block title %}{% if term %}Edit Term{% else %}New Term{% endif %} — Notipa{% endblock %}
+
+{% block breadcrumb %}
+  <a href="{% url 'core:terms' %}">Terms</a><span class="topbar__breadcrumb-sep">/</span><span class="topbar__breadcrumb-current">{% if term %}Edit{% else %}New{% endif %}</span>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <span class="page-header__eyebrow">Admin</span>
+    <h1>{% if term %}Edit Term{% else %}New Term{% endif %}</h1>
+  </div>
+</div>
+
+<div class="card card--pad-lg" style="max-width: 520px;">
+  <form method="post">
+    {% csrf_token %}
+    <div class="field">
+      <label class="field__label" for="{{ form.name.id_for_label }}">Name</label>
+      {{ form.name }}
+      {% if form.name.errors %}<div class="field__hint text-brick">{{ form.name.errors|striptags }}</div>{% endif %}
+    </div>
+    <div class="field-row">
+      <div class="field">
+        <label class="field__label" for="{{ form.start_date.id_for_label }}">Start Date</label>
+        {{ form.start_date }}
+        {% if form.start_date.errors %}<div class="field__hint text-brick">{{ form.start_date.errors|striptags }}</div>{% endif %}
+      </div>
+      <div class="field">
+        <label class="field__label" for="{{ form.end_date.id_for_label }}">End Date</label>
+        {{ form.end_date }}
+        {% if form.end_date.errors %}<div class="field__hint text-brick">{{ form.end_date.errors|striptags }}</div>{% endif %}
+      </div>
+    </div>
+    {% if form.non_field_errors %}<div class="field__hint text-brick">{{ form.non_field_errors|striptags }}</div>{% endif %}
+    <div style="display:flex; gap:10px; margin-top: 22px;">
+      <button type="submit" class="btn btn--primary">{% if term %}Save Changes{% else %}Add Term{% endif %}</button>
+      <a href="{% url 'core:terms' %}" class="btn btn--secondary">Cancel</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

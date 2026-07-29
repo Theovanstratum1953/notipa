@@ -791,6 +791,149 @@ class AttendanceRecord(UUIDModel):
         return f"{self.student} — {self.date} ({self.get_status_display()})"
 
 
+class Term(UUIDModel):
+    """
+    A school's own academic term (e.g. "Term 1", "Quarter 2"), defined
+    once per year by an admin — the roadmap's "Term setup ... lays
+    groundwork the calendar feature will build on." Deliberately just a
+    name and a date range: no notion of which subjects or classes are
+    "in" a term, since that's the same free-form shape SchoolCalendarEvent
+    already uses for the school's closed-day calendar, and ReportCard
+    below is what actually ties a term to specific students.
+    """
+
+    school = models.ForeignKey(School, on_delete=models.CASCADE, related_name="terms")
+    name = models.CharField(max_length=100, help_text="e.g. 'Term 1' or 'Quarter 2'")
+    start_date = models.DateField()
+    end_date = models.DateField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["start_date"]
+        constraints = [
+            models.UniqueConstraint(fields=["school", "name"], name="unique_term_name_per_school"),
+        ]
+
+    def clean(self):
+        if self.end_date and self.start_date and self.end_date < self.start_date:
+            raise ValidationError("End date can't be before the start date.")
+
+    def __str__(self):
+        return f"{self.name} ({self.start_date} – {self.end_date}) — {self.school}"
+
+
+class ReportCard(UUIDModel):
+    """
+    One term's report for one student — the roadmap's "single, dated
+    document tied to one student and one term", replacing "the
+    photocopied slip sent home in a backpack" rather than becoming a
+    full academic-records system. Subject-level detail lives in
+    ReportCardEntry; this row holds the free-text comment and the
+    draft/publish state.
+
+    school_class is stored alongside student (the same shape
+    AttendanceRecord already uses, for the same reason): it records
+    which class the report was actually written for, and is what scopes
+    a teacher to "their own class(es)" for report entry
+    (core.views._classes_taught_by), even if the student is later moved
+    to a different class.
+
+    Follows the same draft-then-publish pattern as Announcement: a
+    teacher can save incomplete work, and a guardian only ever sees a
+    published report (core.views.my_child_report_cards), never a draft
+    — "nothing half-written reaches a family." Publishing sets
+    published_at, mirroring Announcement.published_at.
+
+    One row per (student, term): retaking/re-editing a report for a
+    term updates this same row (and its entries) rather than
+    accumulating duplicates.
+    """
+
+    class Status(models.TextChoices):
+        DRAFT = "draft", "Draft"
+        PUBLISHED = "published", "Published"
+
+    student = models.ForeignKey(Student, on_delete=models.CASCADE, related_name="report_cards")
+    term = models.ForeignKey(Term, on_delete=models.CASCADE, related_name="report_cards")
+    school_class = models.ForeignKey(
+        SchoolClass, on_delete=models.CASCADE, related_name="report_cards"
+    )
+    status = models.CharField(max_length=10, choices=Status.choices, default=Status.DRAFT)
+    comment = models.TextField(
+        blank=True, help_text="Optional narrative comment, shown alongside the subject rows."
+    )
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name="report_cards_created",
+        help_text="The teacher (or admin, on a teacher's behalf) who last saved this report.",
+    )
+    published_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-term__start_date"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["student", "term"], name="unique_report_card_per_student_term"
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.student} — {self.term} ({self.get_status_display()})"
+
+
+class ReportCardEntry(UUIDModel):
+    """
+    One subject row on a ReportCard. `grade` is deliberately free text
+    rather than a rigid numeric/enum scale — schools vary widely
+    (letter grades, percentages, descriptive marks), and the roadmap is
+    explicit that the grading scale should stay flexible rather than
+    hard-coded.
+    """
+
+    report_card = models.ForeignKey(
+        ReportCard, on_delete=models.CASCADE, related_name="entries"
+    )
+    subject = models.CharField(max_length=100)
+    grade = models.CharField(
+        max_length=50,
+        help_text="Free text — a letter grade, a percentage, or a descriptive mark.",
+    )
+    order = models.PositiveSmallIntegerField(
+        default=0, help_text="Controls display order on the report."
+    )
+
+    class Meta:
+        ordering = ["order", "subject"]
+
+    def __str__(self):
+        return f"{self.subject}: {self.grade}"
+
+
+class ReportCardRead(UUIDModel):
+    """Read-tracking record for a published ReportCard — one row per
+    guardian who has opened it, the same shape as AnnouncementRead."""
+
+    report_card = models.ForeignKey(ReportCard, on_delete=models.CASCADE, related_name="reads")
+    guardian = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="report_card_reads"
+    )
+    read_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["report_card", "guardian"], name="unique_report_card_read"
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.guardian} read {self.report_card}"
+
+
 class MessageThread(UUIDModel):
     """
     A conversation that shares the Message model below in one of two

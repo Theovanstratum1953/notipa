@@ -155,6 +155,31 @@
   </div>
 </div>
 
+<div class="card card--pad-lg" style="max-width: 480px; margin-bottom: 20px;">
+  <div class="card__header">
+    <h2 class="card__title" style="margin:0;">Report Cards</h2>
+    <a href="{% url 'core:my_child_report_cards' student.pk %}" class="card__link">View all</a>
+  </div>
+  <div class="list-group">
+    {% for r in report_cards %}
+    <div class="list-row">
+      <div class="list-row__icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+      </div>
+      <div class="list-row__body">
+        <div class="list-row__title">{{ r.term.name }}</div>
+        <div class="list-row__meta">
+          Published {{ r.published_at|date:"M j, Y" }} ·
+          <a href="{% url 'core:report_card_view' r.pk %}" target="_blank" rel="noopener">View / Print</a>
+        </div>
+      </div>
+    </div>
+    {% empty %}
+    <div class="empty-list">No report cards published yet.</div>
+    {% endfor %}
+  </div>
+</div>
+
 <div class="card card--pad-lg" style="max-width: 480px;">
   <div class="card__header">
     <h2 class="card__title" style="margin:0;">Permission Slips</h2>

@@ -1,6 +1,7 @@
 from django import forms
 from django.contrib.auth import get_user_model
 from django.contrib.auth import password_validation
+from django.forms.models import BaseInlineFormSet
 
 from .models import (
     Announcement,
@@ -9,11 +10,14 @@ from .models import (
     Homework,
     HomeworkSubmission,
     PermissionSlip,
+    ReportCard,
+    ReportCardEntry,
     School,
     SchoolCalendarEvent,
     SchoolClass,
     SchoolMembership,
     Student,
+    Term,
 )
 
 User = get_user_model()
@@ -976,3 +980,119 @@ class SchoolCalendarEventForm(forms.ModelForm):
         if start_date and end_date and end_date < start_date:
             self.add_error("end_date", "End date can't be before the start date.")
         return cleaned_data
+
+
+class TermForm(forms.ModelForm):
+    """
+    Creates or edits a Term — core.views.term_new/term_edit. Admin-only
+    (roadmap: "managed by admins"), the same "an admin maintains a
+    list" shape as SchoolCalendarEventForm above, including how `school`
+    is passed in explicitly by the view rather than taken from POST
+    data, and end_date >= start_date is enforced on the model's clean(),
+    not re-declared here.
+    """
+
+    class Meta:
+        model = Term
+        fields = ["name", "start_date", "end_date"]
+        widgets = {
+            "name": forms.TextInput(attrs={"class": "input", "placeholder": "e.g. Term 1"}),
+            "start_date": forms.DateInput(attrs={"class": "input", "type": "date"}),
+            "end_date": forms.DateInput(attrs={"class": "input", "type": "date"}),
+        }
+
+    def __init__(self, *args, school=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.instance.school = school
+
+    def clean(self):
+        cleaned_data = super().clean()
+        start_date = cleaned_data.get("start_date")
+        end_date = cleaned_data.get("end_date")
+        if start_date and end_date and end_date < start_date:
+            self.add_error("end_date", "End date can't be before the start date.")
+        return cleaned_data
+
+
+class ReportCardForm(forms.ModelForm):
+    """
+    Edits the free-text comment on a ReportCard — core.views.
+    report_card_edit. Everything else on that page (student, term,
+    school_class, status/published_at, and the subject rows) is set by
+    the view/formset rather than exposed here: student/term/school_class
+    are fixed once the report is created (looked up from the URL, never
+    from POST — same "never trust an id from outside the view's own
+    lookup" posture as the rest of this app), and status/published_at
+    are flipped by the explicit publish action, not a form field a
+    teacher could accidentally toggle while editing the comment.
+    """
+
+    class Meta:
+        model = ReportCard
+        fields = ["comment"]
+        widgets = {
+            "comment": forms.Textarea(
+                attrs={"class": "input", "rows": 5, "placeholder": "Optional comment for the family"}
+            ),
+        }
+
+
+class _HiddenDeleteCheckbox(forms.CheckboxInput):
+    """The formset's DELETE checkbox, rendered hidden — core/
+    report_card_form.html drives removal through a "Remove" button (JS
+    checks this box and hides the row) instead of showing the raw
+    checkbox to the teacher filling in the form.
+
+    Note this can't be set via inlineformset_factory's `widgets=` dict:
+    that dict only reaches the underlying ModelForm's own fields
+    (subject/grade/order) — DELETE is added afterwards by the formset
+    itself (django.forms.formsets.BaseFormSet.add_fields), so
+    customizing its widget means overriding the formset's own
+    `deletion_widget` class attribute instead, via
+    ReportCardEntryBaseFormSet below.
+    """
+
+    def __init__(self, attrs=None):
+        merged_attrs = {"class": "entry-delete-checkbox", "style": "display:none;"}
+        if attrs:
+            merged_attrs.update(attrs)
+        super().__init__(merged_attrs)
+
+
+class ReportCardEntryBaseFormSet(BaseInlineFormSet):
+    deletion_widget = _HiddenDeleteCheckbox
+
+
+def report_card_entry_formset_factory(extra=3):
+    """
+    Builds the subject/grade formset class with a given number of blank
+    "extra" rows. A function rather than one fixed module-level class:
+    core.views.report_card_edit wants a different extra count depending
+    on context — a handful of blank starter rows for a report that
+    already has saved entries (the "+ Add Subject Row" button in
+    core/report_card_form.html covers the rest on demand, so there's no
+    need to always pad the page with a large fixed number of unused
+    rows that would otherwise reappear, unsaved, every time the page is
+    reopened), versus more blank rows up front for a genuinely new
+    report with nothing entered yet.
+    """
+    return forms.inlineformset_factory(
+        ReportCard,
+        ReportCardEntry,
+        formset=ReportCardEntryBaseFormSet,
+        fields=["subject", "grade", "order"],
+        widgets={
+            "subject": forms.TextInput(attrs={"class": "input", "placeholder": "e.g. Mathematics"}),
+            "grade": forms.TextInput(
+                attrs={"class": "input", "placeholder": "e.g. A, 92%, Meets expectations"}
+            ),
+            "order": forms.NumberInput(attrs={"class": "input", "style": "width: 70px;"}),
+        },
+        extra=extra,
+        can_delete=True,
+    )
+
+
+# Default instance, used wherever the context-specific extra count from
+# report_card_entry_formset_factory doesn't matter (e.g. type checks).
+ReportCardEntryFormSet = report_card_entry_formset_factory()

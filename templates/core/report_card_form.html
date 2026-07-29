@@ -1,0 +1,170 @@
+{% extends "base.html" %}
+
+{% block title %}Report Card — {{ student.first_name }} {{ student.last_name }} — Notipa{% endblock %}
+
+{% block breadcrumb %}
+  <a href="{% url 'core:report_cards_roster' school_class.pk %}?term={{ term.pk }}">{{ school_class.name }}</a><span class="topbar__breadcrumb-sep">/</span><span class="topbar__breadcrumb-current">{{ student.first_name }} {{ student.last_name }}</span>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <span class="page-header__eyebrow">Report Cards</span>
+    <h1>{{ student.first_name }} {{ student.last_name }}</h1>
+    <p class="page-header__sub">
+      {{ term.name }} · {{ school_class.name }}
+      {% if report.status == "published" %}
+        · <span class="tag tag--active"><span class="tag__eyelet"></span>Published {{ report.published_at|date:"M j, Y" }}</span>
+      {% else %}
+        · <span class="tag tag--warning"><span class="tag__eyelet"></span>Draft</span>
+      {% endif %}
+    </p>
+  </div>
+</div>
+
+<div class="card card--pad-lg" style="max-width: 400px; margin-bottom: 20px;">
+  <h2 style="margin-top:0;">Attendance This Term</h2>
+  <p>
+    Present {{ attendance_summary.present }} · Absent {{ attendance_summary.absent }} · Late {{ attendance_summary.late }}
+  </p>
+  <p class="text-dim" style="margin-bottom:0;">Pulled in automatically from the class's daily attendance roster.</p>
+</div>
+
+<form method="post">
+  {% csrf_token %}
+  <div class="card card--pad-lg" style="max-width: 720px; margin-bottom: 20px;">
+    <h2 style="margin-top:0;">Subjects</h2>
+    {{ formset.management_form }}
+    {% if formset.non_form_errors %}<div class="field__hint text-brick">{{ formset.non_form_errors|striptags }}</div>{% endif %}
+    <div class="table-wrap">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Subject</th>
+            <th>Grade / Mark</th>
+            <th class="cell--num">Order</th>
+            {% if formset.can_delete %}<th></th>{% endif %}
+          </tr>
+        </thead>
+        <tbody id="entry-rows">
+          {% for entry_form in formset %}
+          <tr>
+            <td>
+              {{ entry_form.id }}
+              {{ entry_form.subject }}
+              {% if entry_form.subject.errors %}<div class="field__hint text-brick">{{ entry_form.subject.errors|striptags }}</div>{% endif %}
+            </td>
+            <td>
+              {{ entry_form.grade }}
+              {% if entry_form.grade.errors %}<div class="field__hint text-brick">{{ entry_form.grade.errors|striptags }}</div>{% endif %}
+            </td>
+            <td class="cell--num">{{ entry_form.order }}</td>
+            {% if formset.can_delete %}
+            <td>
+              {{ entry_form.DELETE }}
+              <button type="button" class="btn btn--danger btn--sm remove-entry-row">Remove</button>
+            </td>
+            {% endif %}
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <button type="button" id="add-entry-row" class="btn btn--secondary btn--sm" style="margin-top: 8px;">
+      + Add Subject Row
+    </button>
+    <template id="entry-empty-form-template">
+      <tr>
+        <td>
+          {{ formset.empty_form.id }}
+          {{ formset.empty_form.subject }}
+        </td>
+        <td>
+          {{ formset.empty_form.grade }}
+        </td>
+        <td class="cell--num">{{ formset.empty_form.order }}</td>
+        {% if formset.can_delete %}
+        <td>
+          {{ formset.empty_form.DELETE }}
+          <button type="button" class="btn btn--danger btn--sm remove-entry-row">Remove</button>
+        </td>
+        {% endif %}
+      </tr>
+    </template>
+  </div>
+
+  <div class="card card--pad-lg" style="max-width: 720px; margin-bottom: 20px;">
+    <h2 style="margin-top:0;">Comment</h2>
+    {{ form.comment }}
+    {% if form.comment.errors %}<div class="field__hint text-brick">{{ form.comment.errors|striptags }}</div>{% endif %}
+  </div>
+
+  <div style="display:flex; gap:10px;">
+    <button type="submit" name="save_draft" class="btn btn--secondary">Save Draft</button>
+    <button type="submit" name="publish" class="btn btn--primary">Publish</button>
+    <a href="{% url 'core:report_cards_roster' school_class.pk %}?term={{ term.pk }}" class="btn btn--ghost">Cancel</a>
+  </div>
+</form>
+
+<script>
+  // Adds a blank subject row on demand, rather than only ever offering a
+  // fixed number of extra rows up front (core.forms.ReportCardEntryFormSet
+  // sets a generous default, but a school with more subjects than that
+  // shouldn't be stuck). Standard Django formset JS pattern: clone the
+  // empty_form template, swap its "__prefix__" placeholder for the next
+  // form index, append it, then bump TOTAL_FORMS so Django parses the new
+  // row on submit.
+  //
+  // Removing a row hides it rather than deleting the <tr> outright —
+  // for a row that already exists in the database (its hidden "-id"
+  // input has a value), Django only deletes it on save if that row's
+  // DELETE checkbox (see core.forms.ReportCardEntryFormSet's DELETE
+  // widget, hidden via CSS rather than shown as a raw checkbox) comes
+  // back checked, so removing the element from the DOM entirely
+  // wouldn't actually delete anything.
+  //
+  // A row added client-side and never saved doesn't need its DELETE box
+  // checked, but it still can't be torn out of the DOM completely:
+  // Django's ModelForm gives fields with a model-level default (like
+  // ReportCardEntry.order, default=0) an *initial* value of 0 even for
+  // an unsaved extra form, and if that field's input is missing from
+  // the submission entirely (rather than present-but-unchanged), Django
+  // reads that as "0 changed to nothing" and wrongly treats the whole
+  // row as filled in, requiring Subject/Grade too. Hiding the row
+  // instead keeps its fields present-but-unchanged, so Django correctly
+  // recognizes it as blank and skips it.
+  (function () {
+    var addButton = document.getElementById('add-entry-row');
+    var rowsBody = document.getElementById('entry-rows');
+    var template = document.getElementById('entry-empty-form-template');
+    var totalForms = document.getElementById('id_entries-TOTAL_FORMS');
+    if (!addButton || !rowsBody || !template || !totalForms) return;
+
+    function wireRemoveButton(button) {
+      button.addEventListener('click', function () {
+        var row = button.closest('tr');
+        var idInput = row.querySelector('input[name$="-id"]');
+        if (idInput && idInput.value) {
+          var deleteInput = row.querySelector('input[name$="-DELETE"]');
+          if (deleteInput) deleteInput.checked = true;
+        }
+        row.style.display = 'none';
+      });
+    }
+
+    rowsBody.querySelectorAll('.remove-entry-row').forEach(wireRemoveButton);
+
+    addButton.addEventListener('click', function () {
+      var index = parseInt(totalForms.value, 10);
+      var html = template.innerHTML.replace(/__prefix__/g, index);
+      var wrapper = document.createElement('tbody');
+      wrapper.innerHTML = html;
+      var newRow = wrapper.firstElementChild;
+      rowsBody.appendChild(newRow);
+      totalForms.value = index + 1;
+      var removeButton = newRow.querySelector('.remove-entry-row');
+      if (removeButton) wireRemoveButton(removeButton);
+    });
+  })();
+</script>
+{% endblock %}

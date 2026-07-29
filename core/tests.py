@@ -25,11 +25,15 @@ from .models import (
     MessageThreadRead,
     PermissionSlip,
     PermissionSlipResponse,
+    ReportCard,
+    ReportCardEntry,
+    ReportCardRead,
     School,
     SchoolCalendarEvent,
     SchoolClass,
     SchoolMembership,
     Student,
+    Term,
 )
 from .views import _sync_permission_slip_responses
 
@@ -3270,6 +3274,293 @@ class AttendanceTests(TestCase):
         )
         response = self.client.get(reverse("core:class_detail", args=[self.class_a.pk]))
         self.assertTrue(response.context["attendance_taken_today"])
+
+
+class ReportCardTests(TestCase):
+    """
+    Covers the Report Cards per Student feature: core.models.Term/
+    ReportCard/ReportCardEntry/ReportCardRead, and core.views.term_*/
+    report_cards_classes_list/report_cards_roster/
+    report_cards_publish_all/report_card_edit/report_card_view/
+    my_child_report_cards. The two permission boundaries the roadmap
+    calls out explicitly are exercised directly: "a teacher can only
+    enter reports for students in their own class" and "a guardian can
+    only see their own linked students' [published] reports" — plus the
+    multi-guardian-household case (both guardians see the same
+    published report).
+    """
+
+    def setUp(self):
+        self.school_a = School.objects.create(name="School A", country="PH")
+        self.school_b = School.objects.create(name="School B", country="PH")
+
+        self.admin_a = User.objects.create_user(username="admin_a", password="pw12345!")
+        SchoolMembership.objects.create(
+            user=self.admin_a, school=self.school_a, role=SchoolMembership.Role.ADMIN
+        )
+        self.teacher_a = User.objects.create_user(username="teacher_a", password="pw12345!")
+        SchoolMembership.objects.create(
+            user=self.teacher_a, school=self.school_a, role=SchoolMembership.Role.TEACHER
+        )
+        # A second teacher at the same school who does *not* teach class_a
+        # — the one who should be blocked from entering its reports.
+        self.other_teacher_a = User.objects.create_user(
+            username="other_teacher_a", password="pw12345!"
+        )
+        self.other_teacher_membership = SchoolMembership.objects.create(
+            user=self.other_teacher_a, school=self.school_a, role=SchoolMembership.Role.TEACHER
+        )
+        self.guardian_a = User.objects.create_user(username="guardian_a", password="pw12345!")
+        SchoolMembership.objects.create(
+            user=self.guardian_a, school=self.school_a, role=SchoolMembership.Role.GUARDIAN
+        )
+        self.second_guardian_a = User.objects.create_user(
+            username="second_guardian_a", password="pw12345!"
+        )
+        SchoolMembership.objects.create(
+            user=self.second_guardian_a, school=self.school_a, role=SchoolMembership.Role.GUARDIAN
+        )
+        self.other_guardian_a = User.objects.create_user(
+            username="other_guardian_a", password="pw12345!"
+        )
+        SchoolMembership.objects.create(
+            user=self.other_guardian_a, school=self.school_a, role=SchoolMembership.Role.GUARDIAN
+        )
+        self.admin_b = User.objects.create_user(username="admin_b", password="pw12345!")
+        SchoolMembership.objects.create(
+            user=self.admin_b, school=self.school_b, role=SchoolMembership.Role.ADMIN
+        )
+
+        teacher_a_membership = SchoolMembership.objects.get(
+            user=self.teacher_a, school=self.school_a
+        )
+        self.class_a = SchoolClass.objects.create(
+            school=self.school_a, name="Grade 4", academic_year="2026-2027",
+            homeroom_teacher=teacher_a_membership,
+        )
+        self.class_b = SchoolClass.objects.create(
+            school=self.school_b, name="Grade 4", academic_year="2026-2027"
+        )
+
+        self.student = Student.objects.create(
+            school=self.school_a, school_class=self.class_a, first_name="Ana", last_name="Reyes"
+        )
+        self.other_student = Student.objects.create(
+            school=self.school_a, school_class=self.class_a, first_name="Ben", last_name="Cruz"
+        )
+        GuardianLink.objects.create(guardian=self.guardian_a, student=self.student)
+        GuardianLink.objects.create(guardian=self.second_guardian_a, student=self.student)
+        GuardianLink.objects.create(guardian=self.other_guardian_a, student=self.other_student)
+
+        self.term = Term.objects.create(
+            school=self.school_a, name="Term 1",
+            start_date=date(2026, 6, 1), end_date=date(2026, 8, 31),
+        )
+
+    def _entry_formset_payload(self, subjects_and_grades, prefix="entries"):
+        data = {
+            f"{prefix}-TOTAL_FORMS": str(len(subjects_and_grades)),
+            f"{prefix}-INITIAL_FORMS": "0",
+            f"{prefix}-MIN_NUM_FORMS": "0",
+            f"{prefix}-MAX_NUM_FORMS": "1000",
+        }
+        for i, (subject, grade) in enumerate(subjects_and_grades):
+            data[f"{prefix}-{i}-subject"] = subject
+            data[f"{prefix}-{i}-grade"] = grade
+            data[f"{prefix}-{i}-order"] = str(i)
+        return data
+
+    def test_model_unique_constraint_per_student_per_term(self):
+        ReportCard.objects.create(student=self.student, term=self.term, school_class=self.class_a)
+        with self.assertRaises(Exception):
+            ReportCard.objects.create(
+                student=self.student, term=self.term, school_class=self.class_a
+            )
+
+    def test_admin_can_create_term_teacher_and_guardian_cannot(self):
+        self.client.login(username="admin_a", password="pw12345!")
+        response = self.client.post(
+            reverse("core:term_new"),
+            {"name": "Term 2", "start_date": "2026-09-01", "end_date": "2026-11-30"},
+        )
+        self.assertRedirects(response, reverse("core:terms"))
+        self.assertTrue(Term.objects.filter(school=self.school_a, name="Term 2").exists())
+
+        for username in ("teacher_a", "guardian_a"):
+            self.client.login(username=username, password="pw12345!")
+            response = self.client.get(reverse("core:term_new"))
+            self.assertEqual(response.status_code, 403)
+            self.client.logout()
+
+    def test_homeroom_teacher_can_enter_report_for_own_class(self):
+        self.client.login(username="teacher_a", password="pw12345!")
+        payload = {"comment": "Doing well this term."}
+        payload.update(self._entry_formset_payload([("Mathematics", "A"), ("Science", "B+")]))
+        payload["save_draft"] = "1"
+        response = self.client.post(
+            reverse("core:report_card_edit", args=[self.class_a.pk, self.term.pk, self.student.pk]),
+            payload,
+        )
+        self.assertRedirects(
+            response,
+            f"{reverse('core:report_cards_roster', args=[self.class_a.pk])}?term={self.term.pk}",
+        )
+        report = ReportCard.objects.get(student=self.student, term=self.term)
+        self.assertEqual(report.status, ReportCard.Status.DRAFT)
+        self.assertEqual(report.comment, "Doing well this term.")
+        self.assertEqual(report.entries.count(), 2)
+        self.assertEqual(report.created_by, self.teacher_a)
+
+    def test_teacher_not_teaching_the_class_is_blocked(self):
+        self.client.login(username="other_teacher_a", password="pw12345!")
+        response = self.client.get(
+            reverse("core:report_card_edit", args=[self.class_a.pk, self.term.pk, self.student.pk])
+        )
+        self.assertEqual(response.status_code, 404)
+
+    def test_admin_can_enter_report_on_teachers_behalf(self):
+        self.client.login(username="admin_a", password="pw12345!")
+        payload = {"comment": "Entered by admin."}
+        payload.update(self._entry_formset_payload([("Mathematics", "A")]))
+        payload["save_draft"] = "1"
+        response = self.client.post(
+            reverse("core:report_card_edit", args=[self.class_a.pk, self.term.pk, self.student.pk]),
+            payload,
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(ReportCard.objects.filter(student=self.student, term=self.term).exists())
+
+    def test_admin_cannot_reach_other_schools_class(self):
+        self.client.login(username="admin_a", password="pw12345!")
+        response = self.client.get(
+            reverse("core:report_cards_roster", args=[self.class_b.pk])
+        )
+        self.assertEqual(response.status_code, 404)
+
+    def test_publish_sets_status_and_makes_it_visible_to_all_linked_guardians(self):
+        self.client.login(username="teacher_a", password="pw12345!")
+        payload = {"comment": "Great progress."}
+        payload.update(self._entry_formset_payload([("Mathematics", "A")]))
+        payload["publish"] = "1"
+        self.client.post(
+            reverse("core:report_card_edit", args=[self.class_a.pk, self.term.pk, self.student.pk]),
+            payload,
+        )
+        report = ReportCard.objects.get(student=self.student, term=self.term)
+        self.assertEqual(report.status, ReportCard.Status.PUBLISHED)
+        self.assertIsNotNone(report.published_at)
+
+        # Both guardians linked to this student (multi-guardian household)
+        # see the same published report.
+        for username in ("guardian_a", "second_guardian_a"):
+            self.client.login(username=username, password="pw12345!")
+            response = self.client.get(reverse("core:my_child_report_cards", args=[self.student.pk]))
+            self.assertContains(response, "Term 1")
+            view_response = self.client.get(reverse("core:report_card_view", args=[report.pk]))
+            self.assertEqual(view_response.status_code, 200)
+            self.assertContains(view_response, "Mathematics")
+            self.client.logout()
+
+        self.assertTrue(
+            ReportCardRead.objects.filter(report_card=report, guardian=self.guardian_a).exists()
+        )
+
+    def test_draft_not_visible_to_guardian(self):
+        report = ReportCard.objects.create(
+            student=self.student, term=self.term, school_class=self.class_a,
+            status=ReportCard.Status.DRAFT, created_by=self.teacher_a,
+        )
+        self.client.login(username="guardian_a", password="pw12345!")
+        response = self.client.get(reverse("core:my_child_report_cards", args=[self.student.pk]))
+        self.assertNotContains(response, "Term 1")
+
+        response = self.client.get(reverse("core:report_card_view", args=[report.pk]))
+        self.assertEqual(response.status_code, 403)
+
+    def test_guardian_cannot_view_another_familys_child_report(self):
+        report = ReportCard.objects.create(
+            student=self.other_student, term=self.term, school_class=self.class_a,
+            status=ReportCard.Status.PUBLISHED, published_at=timezone.now(),
+        )
+        self.client.login(username="guardian_a", password="pw12345!")
+        response = self.client.get(reverse("core:report_card_view", args=[report.pk]))
+        self.assertEqual(response.status_code, 403)
+        response = self.client.get(
+            reverse("core:my_child_report_cards", args=[self.other_student.pk])
+        )
+        self.assertEqual(response.status_code, 404)
+
+    def test_publish_all_drafts_bulk_action(self):
+        ReportCard.objects.create(
+            student=self.student, term=self.term, school_class=self.class_a,
+            status=ReportCard.Status.DRAFT, created_by=self.teacher_a,
+        )
+        ReportCard.objects.create(
+            student=self.other_student, term=self.term, school_class=self.class_a,
+            status=ReportCard.Status.DRAFT, created_by=self.teacher_a,
+        )
+        self.client.login(username="teacher_a", password="pw12345!")
+        response = self.client.post(
+            reverse("core:report_cards_publish_all", args=[self.class_a.pk, self.term.pk])
+        )
+        self.assertRedirects(
+            response,
+            f"{reverse('core:report_cards_roster', args=[self.class_a.pk])}?term={self.term.pk}",
+        )
+        statuses = set(
+            ReportCard.objects.filter(school_class=self.class_a, term=self.term).values_list(
+                "status", flat=True
+            )
+        )
+        self.assertEqual(statuses, {ReportCard.Status.PUBLISHED})
+
+    def test_guardian_cannot_reach_teacher_or_admin_screens(self):
+        self.client.login(username="guardian_a", password="pw12345!")
+        self.assertEqual(
+            self.client.get(reverse("core:report_cards_classes")).status_code, 403
+        )
+        self.assertEqual(
+            self.client.get(reverse("core:report_cards_roster", args=[self.class_a.pk])).status_code,
+            403,
+        )
+        self.assertEqual(self.client.get(reverse("core:terms")).status_code, 403)
+
+    def test_attendance_summary_pulled_into_report_form(self):
+        AttendanceRecord.objects.create(
+            student=self.student, school_class=self.class_a, date=date(2026, 6, 5),
+            status=AttendanceRecord.Status.PRESENT,
+        )
+        AttendanceRecord.objects.create(
+            student=self.student, school_class=self.class_a, date=date(2026, 6, 6),
+            status=AttendanceRecord.Status.ABSENT,
+        )
+        self.client.login(username="teacher_a", password="pw12345!")
+        response = self.client.get(
+            reverse("core:report_card_edit", args=[self.class_a.pk, self.term.pk, self.student.pk])
+        )
+        self.assertEqual(response.context["attendance_summary"], {"present": 1, "absent": 1, "late": 0})
+
+    def test_subject_list_copied_from_sibling_report_in_same_class_and_term(self):
+        first_report = ReportCard.objects.create(
+            student=self.student, term=self.term, school_class=self.class_a, created_by=self.teacher_a
+        )
+        ReportCardEntry.objects.create(report_card=first_report, subject="Mathematics", grade="A", order=0)
+        ReportCardEntry.objects.create(report_card=first_report, subject="Science", grade="B+", order=1)
+
+        self.client.login(username="teacher_a", password="pw12345!")
+        response = self.client.get(
+            reverse(
+                "core:report_card_edit",
+                args=[self.class_a.pk, self.term.pk, self.other_student.pk],
+            )
+        )
+        self.assertContains(response, "Mathematics")
+        self.assertContains(response, "Science")
+        # Second student's own new report has no entries saved yet — only
+        # the subject names were copied as unsaved initial form data.
+        self.assertEqual(
+            ReportCard.objects.get(student=self.other_student, term=self.term).entries.count(), 0
+        )
 
 
 class MessagingTests(TestCase):
