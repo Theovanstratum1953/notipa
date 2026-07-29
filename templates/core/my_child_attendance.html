@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+
+{% block title %}Attendance — {{ student.first_name }} {{ student.last_name }} — Notipa{% endblock %}
+
+{% block breadcrumb %}
+  <a href="{% url 'core:my_child_detail' student.pk %}">{{ student.first_name }} {{ student.last_name }}</a><span class="topbar__breadcrumb-sep">/</span><span class="topbar__breadcrumb-current">Attendance</span>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <span class="page-header__eyebrow">Your Children</span>
+    <h1>{{ student.first_name }} {{ student.last_name }} — Attendance</h1>
+    <p class="page-header__sub">
+      Last {{ records|length }} school day{{ records|length|pluralize }} on record.
+      Present {{ summary.present }} · Absent {{ summary.absent }} · Late {{ summary.late }}
+    </p>
+  </div>
+</div>
+
+<div class="table-wrap">
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>Date</th>
+        <th>Status</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in records %}
+      <tr>
+        <td class="cell--title">{{ r.date|date:"l, F j, Y" }}</td>
+        <td>
+          {% if r.status == "present" %}
+            <span class="tag tag--active"><span class="tag__eyelet"></span>Present</span>
+          {% elif r.status == "late" %}
+            <span class="tag tag--warning"><span class="tag__eyelet"></span>Late</span>
+          {% else %}
+            <span class="tag tag--critical"><span class="tag__eyelet"></span>Absent</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="2"><div class="empty-list">No attendance recorded yet.</div></td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

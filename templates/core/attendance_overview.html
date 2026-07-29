@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+
+{% block title %}Attendance Overview — Notipa{% endblock %}
+
+{% block breadcrumb %}
+  <a href="{% url 'core:attendance_classes' %}">Attendance</a><span class="topbar__breadcrumb-sep">/</span><span class="topbar__breadcrumb-current">Overview</span>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <span class="page-header__eyebrow">Attendance</span>
+    <h1>School Overview</h1>
+    <p class="page-header__sub">
+      {{ window_start|date:"M j" }} – {{ today|date:"M j, Y" }}, per class — a place to spot a pattern of absences, not a substitute for a class's own daily roster.
+    </p>
+  </div>
+</div>
+
+<div class="table-wrap">
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>Class</th>
+        <th class="cell--num">Present</th>
+        <th class="cell--num">Absent</th>
+        <th class="cell--num">Late</th>
+        <th class="cell--num">Records</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in rows %}
+      <tr>
+        <td class="cell--title"><a href="{% url 'core:class_detail' row.school_class.pk %}">{{ row.school_class.name }}</a></td>
+        <td class="cell--num">{{ row.present }}</td>
+        <td class="cell--num">{{ row.absent }}</td>
+        <td class="cell--num">{{ row.late }}</td>
+        <td class="cell--num">{{ row.total }}</td>
+        <td>
+          <a href="{% url 'core:attendance_roster' row.school_class.pk %}" class="btn btn--secondary btn--sm">Open Roster</a>
+        </td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="6"><div class="empty-list">No classes yet.</div></td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

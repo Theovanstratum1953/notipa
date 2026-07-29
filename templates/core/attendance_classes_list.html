@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+
+{% block title %}Attendance — Notipa{% endblock %}
+
+{% block breadcrumb %}
+  <span class="topbar__breadcrumb-current">Attendance</span>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <span class="page-header__eyebrow">Communication</span>
+    <h1>Attendance</h1>
+    <p class="page-header__sub">
+      Pick a class to take or review its daily roster.
+    </p>
+  </div>
+  {% if request.membership.role == "admin" %}
+  <a href="{% url 'core:attendance_overview' %}" class="btn btn--secondary">
+    School Overview
+  </a>
+  {% endif %}
+</div>
+
+<div class="table-wrap">
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>Class</th>
+        <th>Academic Year</th>
+        <th>Today ({{ today|date:"M j, Y" }})</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for c in classes %}
+      <tr>
+        <td class="cell--title"><a href="{% url 'core:class_detail' c.pk %}">{{ c.name }}</a></td>
+        <td>{{ c.academic_year }}</td>
+        <td>
+          {% if c.attendance_taken_today %}
+            <span class="tag tag--active"><span class="tag__eyelet"></span>Taken</span>
+          {% else %}
+            <span class="tag tag--warning"><span class="tag__eyelet"></span>Not yet taken</span>
+          {% endif %}
+        </td>
+        <td>
+          <a href="{% url 'core:attendance_roster' c.pk %}" class="btn btn--primary btn--sm">Take Attendance</a>
+        </td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="4"><div class="empty-list">No classes yet.</div></td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

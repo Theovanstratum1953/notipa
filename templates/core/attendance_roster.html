@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+
+{% block title %}Attendance — {{ school_class.name }} — Notipa{% endblock %}
+
+{% block breadcrumb %}
+  <a href="{% url 'core:attendance_classes' %}">Attendance</a><span class="topbar__breadcrumb-sep">/</span><span class="topbar__breadcrumb-current">{{ school_class.name }}</span>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <span class="page-header__eyebrow">Attendance</span>
+    <h1>{{ school_class.name }}</h1>
+    <p class="page-header__sub">
+      {{ roster_date|date:"l, F j, Y" }}
+      {% if roster_date == today %} · Today{% endif %}
+      {% if taken %} · <span class="tag tag--active" style="margin-left: 4px;"><span class="tag__eyelet"></span>Taken</span>
+      {% else %} · <span class="tag tag--warning" style="margin-left: 4px;"><span class="tag__eyelet"></span>Not yet taken</span>{% endif %}
+    </p>
+  </div>
+  <div>
+    <a href="?date={{ prev_date|date:'Y-m-d' }}" class="btn btn--secondary btn--sm">&larr; {{ prev_date|date:"M j" }}</a>
+    {% if next_date %}
+      <a href="?date={{ next_date|date:'Y-m-d' }}" class="btn btn--secondary btn--sm">{{ next_date|date:"M j" }} &rarr;</a>
+    {% endif %}
+  </div>
+</div>
+
+{% if closed_event %}
+<div class="alert alert--brand" style="margin-bottom: 16px;">
+  <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
+  <div class="alert__body">
+    The school calendar shows this as a closed day — “{{ closed_event.label }}” ({{ closed_event.get_event_type_display }}). Attendance isn't required, but you can still record something below if needed.
+  </div>
+</div>
+{% endif %}
+
+{% if not can_edit %}
+<div class="alert alert--warning" style="margin-bottom: 16px;">
+  <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+  <div class="alert__body">
+    This date is outside the same-day edit window — only a school admin can change it. You can still view what was recorded.
+  </div>
+</div>
+{% endif %}
+
+<form method="post">
+  {% csrf_token %}
+  <div class="table-wrap">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Student</th>
+          <th>Present</th>
+          <th>Absent</th>
+          <th>Late</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in roster %}
+        <tr>
+          <td class="cell--title">{{ row.student.first_name }} {{ row.student.last_name }}</td>
+          <td>
+            <input type="radio" name="status-{{ row.student.id }}" value="present" {% if row.status == "present" %}checked{% endif %} {% if not can_edit %}disabled{% endif %}>
+          </td>
+          <td>
+            <input type="radio" name="status-{{ row.student.id }}" value="absent" {% if row.status == "absent" %}checked{% endif %} {% if not can_edit %}disabled{% endif %}>
+          </td>
+          <td>
+            <input type="radio" name="status-{{ row.student.id }}" value="late" {% if row.status == "late" %}checked{% endif %} {% if not can_edit %}disabled{% endif %}>
+          </td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="4"><div class="empty-list">No active students in this class.</div></td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% if can_edit and roster %}
+  <div style="margin-top: 16px;">
+    <button type="submit" class="btn btn--primary">Save Attendance</button>
+  </div>
+  {% endif %}
+</form>
+{% endblock %}
