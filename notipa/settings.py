@@ -98,6 +98,12 @@ TEMPLATES = [
                 'django.template.context_processors.request',
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
+                # Exposes VAPID_PUBLIC_KEY to every template as
+                # vapid_public_key — the public half of the Web Push key
+                # pair (see the note near VAPID_PUBLIC_KEY below), needed
+                # client-side by PushManager.subscribe(). Only the public
+                # key; VAPID_PRIVATE_KEY never leaves the server.
+                'core.context_processors.vapid_public_key',
             ],
         },
     },
@@ -213,6 +219,33 @@ MEDIA_ROOT = BASE_DIR / 'media'
 # https://docs.djangoproject.com/en/6.0/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+
+# Web Push (VAPID) — the last Phase 1 build-sequence item (proposal:
+# "PWA install + web push notifications"). VAPID (Voluntary Application
+# Server Identification) is a public/private key pair that lets a push
+# service (Chrome's FCM, Apple's Web Push service, etc.) verify pushes
+# actually come from this server, without any per-push handshake.
+#
+# Generate a pair once per environment (never share one between dev and
+# production, and never commit real values — see env.example.txt) with:
+#     python -m py_vapid --gen
+# which writes private_key.pem/public_key.pem; core.push reads the raw
+# base64 values from these settings instead, so there's nothing to load
+# from disk at runtime.
+#
+# Deliberately optional: if either key is unset (a fresh dev checkout,
+# or a self-hosting school that hasn't generated its own pair yet), push
+# is simply unavailable — core.push.notify_users no-ops rather than
+# raising, and the "Enable notifications" control explains that push
+# isn't configured for this server yet. Nothing else in the app depends
+# on push existing.
+VAPID_PUBLIC_KEY = env('VAPID_PUBLIC_KEY', default='')
+VAPID_PRIVATE_KEY = env('VAPID_PRIVATE_KEY', default='')
+# Contact address the push services can reach if they need to flag abuse
+# — required by the Web Push protocol as part of the VAPID claims, not
+# specific to any one school.
+VAPID_ADMIN_EMAIL = env('VAPID_ADMIN_EMAIL', default='admin@notipa.org')
 
 
 # App version — a plain VERSION file at the repo root rather than a

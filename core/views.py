@@ -1,3 +1,4 @@
+import json
 from datetime import date, timedelta
 
 from django.conf import settings as django_settings
@@ -50,6 +51,7 @@ from .models import (
     MessageThreadRead,
     PermissionSlip,
     PermissionSlipResponse,
+    PushSubscription,
     ReportCard,
     ReportCardEntry,
     ReportCardRead,
@@ -61,8 +63,21 @@ from .models import (
     Term,
 )
 from .permissions import role_required, scope_to_school, superuser_required
+from .push import notify_users, push_configured
 
 User = get_user_model()
+
+
+def _guardian_users_for_students(students):
+    """
+    Every distinct guardian (User) linked to any student in `students` —
+    the recipient set for a push notification about content scoped to
+    those students (a new announcement, homework item, permission slip,
+    etc.). Shared by every notify_users() call site in this file rather
+    than each recomputing the same guardian_links join, so "who gets
+    notified" always means the same query everywhere it's asked.
+    """
+    return User.objects.filter(guardian_links__student__in=students).distinct()
 
 
 @login_required
@@ -375,6 +390,17 @@ def announcement_publish(request, pk):
     announcement = _get_announcement_or_404(request, pk)
     announcement.published_at = timezone.now()
     announcement.save(update_fields=["published_at"])
+
+    students = Student.objects.filter(school=announcement.school, is_active=True)
+    if announcement.school_class_id:
+        students = students.filter(school_class_id=announcement.school_class_id)
+    notify_users(
+        _guardian_users_for_students(students),
+        title="New announcement",
+        body=announcement.title,
+        url=reverse("core:announcements"),
+    )
+
     messages.success(request, f"“{announcement.title}” published — guardians can now see it.")
     return redirect("core:announcements")
 
@@ -550,6 +576,20 @@ def homework_new(request):
             homework = form.save(commit=False)
             homework.created_by = request.user
             homework.save()
+
+            notify_users(
+                _guardian_users_for_students(
+                    Student.objects.filter(school_class=homework.school_class, is_active=True)
+                ),
+                title="New homework",
+                body=f"{homework.title} — {homework.school_class.name}",
+                # Points at the list page (core:homework), not
+                # homework_detail — that per-student roster view is
+                # admin/teacher-only, and a guardian tapping this
+                # notification would otherwise land on a 403.
+                url=reverse("core:homework"),
+            )
+
             messages.success(
                 request,
                 f"“{homework.title}” posted to {homework.school_class.name} — visible to "
@@ -796,6 +836,14 @@ def fee_notice_new(request):
             fee_notice = form.save(commit=False)
             fee_notice.created_by = request.user
             fee_notice.save()
+
+            notify_users(
+                fee_notice.student.guardians.all(),
+                title="New fee notice",
+                body=f"{fee_notice.title} — {fee_notice.student.first_name} {fee_notice.student.last_name}",
+                url=reverse("core:fees"),
+            )
+
             messages.success(
                 request,
                 f"“{fee_notice.title}” posted for {fee_notice.student.first_name} "
@@ -1032,6 +1080,21 @@ def permission_slip_new(request):
             slip.created_by = request.user
             slip.save()
             _sync_permission_slip_responses(slip)
+
+            eligible_students = Student.objects.filter(school=slip.school, is_active=True)
+            if slip.school_class_id:
+                eligible_students = eligible_students.filter(school_class_id=slip.school_class_id)
+            notify_users(
+                _guardian_users_for_students(eligible_students),
+                title="New permission slip",
+                body=slip.title,
+                # core:permission_slips (the list dispatcher), not
+                # permission_slip_detail — that per-student response
+                # roster is admin/teacher-only, and a guardian tapping
+                # this notification would otherwise land on a 403.
+                url=reverse("core:permission_slips"),
+            )
+
             messages.success(
                 request,
                 f"“{slip.title}” posted — visible to "
@@ -1698,9 +1761,21 @@ def report_cards_publish_all(request, pk, term_pk):
     once rather than publishing report by report."""
     school_class = _get_taught_class_or_404(request, pk)
     term = _get_term_or_404(request, term_pk)
+    draft_reports = list(
+        ReportCard.objects.filter(
+            school_class=school_class, term=term, status=ReportCard.Status.DRAFT
+        ).select_related("student")
+    )
     updated = ReportCard.objects.filter(
-        school_class=school_class, term=term, status=ReportCard.Status.DRAFT
+        pk__in=[r.pk for r in draft_reports]
     ).update(status=ReportCard.Status.PUBLISHED, published_at=timezone.now())
+    for report in draft_reports:
+        notify_users(
+            report.student.guardians.all(),
+            title="New report card",
+            body=f"{term.name} — {report.student.first_name} {report.student.last_name}",
+            url=reverse("core:my_child_report_cards", args=[report.student.pk]),
+        )
     if updated:
         messages.success(request, f"Published {updated} report{'s' if updated != 1 else ''} for {term.name}.")
     else:
@@ -1770,6 +1845,14 @@ def report_card_edit(request, pk, term_pk, student_pk):
                 if not report.published_at:
                     report.published_at = timezone.now()
                 report.save()
+
+                notify_users(
+                    student.guardians.all(),
+                    title="New report card",
+                    body=f"{term.name} — {student.first_name} {student.last_name}",
+                    url=reverse("core:my_child_report_cards", args=[student.pk]),
+                )
+
                 messages.success(
                     request, f"Report for {student.first_name} {student.last_name} published."
                 )
@@ -2163,6 +2246,23 @@ def message_thread_detail(request, pk):
             Message.objects.create(thread=thread, sender=request.user, body=body)
             thread.last_message_at = timezone.now()
             thread.save(update_fields=["last_message_at"])
+
+            # Notify whoever else is in the thread — never the sender
+            # themselves. A class thread can have many participants; a
+            # one-to-one thread has exactly one "other party" (whichever
+            # of guardian/teacher isn't request.user).
+            if is_class:
+                recipients = thread.participants.exclude(id=request.user.id)
+            else:
+                other_id = thread.teacher_id if request.user.id == thread.guardian_id else thread.guardian_id
+                recipients = User.objects.filter(id=other_id)
+            sender_name = request.user.get_full_name() or request.user.username
+            notify_users(
+                recipients,
+                title=f"New message from {sender_name}",
+                body=body[:150],
+                url=reverse("core:message_thread_detail", args=[thread.pk]),
+            )
         return redirect("core:message_thread_detail", pk=thread.pk)
 
     thread_messages = list(thread.messages.select_related("sender").order_by("sent_at"))
@@ -2280,6 +2380,97 @@ def wiki(request):
     holder wouldn't have access to.
     """
     return render(request, "core/wiki.html")
+
+
+# ---------------------------------------------------------------------
+# App & Notifications — the last Phase 1 build-sequence item (proposal:
+# "PWA install + web push notifications"). Installability itself
+# (manifest + service worker, root_static/sw.js) doesn't need a view —
+# a browser offers to install any page that meets the criteria on its
+# own — so what lives here is just the piece that does need a server:
+# saving/removing a browser's Web Push subscription (core.models.
+# PushSubscription), plus one page explaining both halves to a user.
+#
+# Deliberately @login_required only, no role_required, same reasoning
+# as core.views.wiki: an admin, teacher, and guardian all read/write
+# their own notification preference identically, and none of it differs
+# by role or school.
+# ---------------------------------------------------------------------
+
+@login_required
+def app_notifications(request):
+    """
+    One page covering both halves of this feature: installing Notipa as
+    an app (the manifest/service-worker already make this possible;
+    this page mostly explains *how*, since Android/desktop and iOS get
+    there differently), and enabling push notifications on this device.
+    Whether *this particular* subscription is currently active is
+    decided client-side (core/static/core/js/push.js checks
+    PushManager.getSubscription() on load) — the server only ever sees
+    "a subscription with this endpoint exists or it doesn't," not which
+    device a browser tab is running on, so the enabled/disabled toggle
+    itself is JS-driven rather than computed here.
+    """
+    return render(
+        request,
+        "core/app_notifications.html",
+        {"push_configured": push_configured(), "subscription_count": request.user.push_subscriptions.count()},
+    )
+
+
+@login_required
+@require_POST
+def push_subscribe(request):
+    """
+    Saves (or updates) the Web Push subscription the browser just
+    created via PushManager.subscribe() — core/static/core/js/push.js
+    posts the subscription's own JSON shape here as soon as the user
+    grants permission. `endpoint` is the upsert key (see PushSubscription's
+    docstring for why it's safely unique across users): a browser that
+    already has a row here re-subscribing (e.g. the browser rotated the
+    subscription under the hood) updates its keys in place rather than
+    creating a duplicate a user would otherwise start getting double
+    notifications from.
+    """
+    try:
+        payload = json.loads(request.body)
+        endpoint = payload["endpoint"]
+        p256dh = payload["keys"]["p256dh"]
+        auth_key = payload["keys"]["auth"]
+    except (ValueError, KeyError, TypeError):
+        return JsonResponse({"error": "Malformed subscription payload."}, status=400)
+
+    PushSubscription.objects.update_or_create(
+        endpoint=endpoint,
+        defaults={
+            "user": request.user,
+            "p256dh": p256dh,
+            "auth_key": auth_key,
+            "user_agent": request.META.get("HTTP_USER_AGENT", "")[:255],
+        },
+    )
+    return JsonResponse({"status": "ok"})
+
+
+@login_required
+@require_POST
+def push_unsubscribe(request):
+    """
+    Removes a Web Push subscription — either the user explicitly turning
+    notifications off for this device, or the service worker cleaning
+    up after PushManager.subscription.unsubscribe() succeeds client-side.
+    Scoped to request.user: a user can only ever remove their own
+    subscription, never one belonging to someone else, even if they
+    somehow got hold of another endpoint string.
+    """
+    try:
+        payload = json.loads(request.body)
+        endpoint = payload["endpoint"]
+    except (ValueError, KeyError, TypeError):
+        return JsonResponse({"error": "Malformed request."}, status=400)
+
+    PushSubscription.objects.filter(user=request.user, endpoint=endpoint).delete()
+    return JsonResponse({"status": "ok"})
 
 
 @login_required

@@ -1,0 +1,145 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}App & Notifications — Notipa{% endblock %}
+
+{% block breadcrumb %}
+  <span class="topbar__breadcrumb-current">App & Notifications</span>
+{% endblock %}
+
+{% block content %}
+{# Ensures the csrftoken cookie is set for this page's fetch() calls to #}
+{# core:push_subscribe/push_unsubscribe — those aren't regular form posts, #}
+{# so nothing else on this page would otherwise trigger Django to set it. #}
+{% csrf_token %}
+<div class="page-header">
+  <div>
+    <span class="page-header__eyebrow">Help</span>
+    <h1>App & Notifications</h1>
+    <p class="page-header__sub">Install Notipa on your phone or computer, and turn on notifications so you don't have to keep checking back.</p>
+  </div>
+</div>
+
+<div class="card card--pad-lg" style="max-width: 560px; margin-bottom: 20px;">
+  <h2 style="margin-top:0;">Install the app</h2>
+  <p>Installing Notipa puts it on your home screen or app list like any other app — full screen, no browser address bar, and it opens straight to your dashboard.</p>
+
+  <div id="install-android" style="display:none;">
+    <button type="button" id="install-button" class="btn btn--primary">Install Notipa</button>
+  </div>
+  <div id="install-android-unsupported" style="display:none;">
+    <p class="text-dim" style="margin-bottom:0;">Your browser already has Notipa installed, or doesn't support one-click install here — look for an "Install app" or "Add to Home Screen" option in your browser's menu instead.</p>
+  </div>
+  <div id="install-ios" style="display:none;">
+    <p style="margin-bottom:0;">On iPhone or iPad: tap the <strong>Share</strong> button in Safari, then <strong>Add to Home Screen</strong>. Notifications need iOS 16.4 or later and only work once Notipa is installed this way — opening it from a home-screen icon, not just a browser tab.</p>
+  </div>
+</div>
+
+<div class="card card--pad-lg" style="max-width: 560px;">
+  <h2 style="margin-top:0;">Notifications</h2>
+  {% if not push_configured %}
+    <div class="alert alert--warning">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+      <div class="alert__body">This server hasn't set up push notifications yet — nothing to turn on here until it does.</div>
+    </div>
+  {% else %}
+    <p>Get a real alert on this device the moment something new is published — a new announcement, homework, fee notice, permission slip, report card, or message — even with Notipa closed.</p>
+    <p id="notification-status" class="text-dim">Checking this device's status…</p>
+    <button type="button" id="enable-notifications" class="btn btn--primary" style="display:none;">Enable Notifications</button>
+    <button type="button" id="disable-notifications" class="btn btn--secondary" style="display:none;">Turn Off on This Device</button>
+    <p id="notification-error" class="text-brick" style="display:none; margin-top: 10px;"></p>
+  {% endif %}
+</div>
+
+{% if push_configured %}
+<script src="{% static 'core/js/push.js' %}"></script>
+<script>
+  (function () {
+    var vapidPublicKey = "{{ vapid_public_key|escapejs }}";
+    var statusEl = document.getElementById("notification-status");
+    var enableBtn = document.getElementById("enable-notifications");
+    var disableBtn = document.getElementById("disable-notifications");
+    var errorEl = document.getElementById("notification-error");
+
+    function showError(err) {
+      errorEl.textContent = (err && err.message) || "Something went wrong. Try again.";
+      errorEl.style.display = "block";
+    }
+
+    function refreshUI() {
+      if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
+        statusEl.textContent = "Push notifications aren't supported in this browser.";
+        return;
+      }
+      getExistingSubscription().then(function (subscription) {
+        if (subscription) {
+          statusEl.textContent = "Notifications are ON for this device.";
+          enableBtn.style.display = "none";
+          disableBtn.style.display = "inline-block";
+        } else {
+          statusEl.textContent = "Notifications are OFF for this device.";
+          enableBtn.style.display = "inline-block";
+          disableBtn.style.display = "none";
+        }
+      });
+    }
+
+    enableBtn.addEventListener("click", function () {
+      errorEl.style.display = "none";
+      enablePushNotifications(vapidPublicKey).then(refreshUI).catch(showError);
+    });
+
+    disableBtn.addEventListener("click", function () {
+      errorEl.style.display = "none";
+      disablePushNotifications().then(refreshUI).catch(showError);
+    });
+
+    refreshUI();
+  })();
+</script>
+{% endif %}
+
+<script>
+  // Install prompt: Chrome/Edge/most Android browsers fire
+  // beforeinstallprompt when the PWA criteria (manifest + service worker,
+  // both already in place — see root_static/sw.js) are met and the app
+  // isn't already installed; Safari/iOS never fires it at all, so that
+  // path always gets the manual "Add to Home Screen" instructions instead.
+  (function () {
+    var deferredPrompt = null;
+    var androidBox = document.getElementById("install-android");
+    var unsupportedBox = document.getElementById("install-android-unsupported");
+    var iosBox = document.getElementById("install-ios");
+    var installButton = document.getElementById("install-button");
+
+    var isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
+
+    if (isIOS) {
+      iosBox.style.display = "block";
+    } else {
+      unsupportedBox.style.display = "block";
+    }
+
+    window.addEventListener("beforeinstallprompt", function (event) {
+      event.preventDefault();
+      deferredPrompt = event;
+      unsupportedBox.style.display = "none";
+      androidBox.style.display = "block";
+    });
+
+    installButton.addEventListener("click", function () {
+      if (!deferredPrompt) return;
+      deferredPrompt.prompt();
+      deferredPrompt.userChoice.finally(function () {
+        deferredPrompt = null;
+        androidBox.style.display = "none";
+      });
+    });
+
+    window.addEventListener("appinstalled", function () {
+      androidBox.style.display = "none";
+      unsupportedBox.style.display = "none";
+    });
+  })();
+</script>
+{% endblock %}

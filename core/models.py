@@ -934,6 +934,63 @@ class ReportCardRead(UUIDModel):
         return f"{self.guardian} read {self.report_card}"
 
 
+class PushSubscription(UUIDModel):
+    """
+    One browser/device's Web Push subscription for a user — the last
+    piece of Phase 1's build sequence (proposal: "PWA install + web push
+    notifications"). A user can hold several of these at once (a phone
+    and a laptop, say); each is registered independently by the
+    service worker (root_static/sw.js) calling PushManager.subscribe(),
+    then posted to core.views.push_subscribe and stored here so
+    core.push.notify_users has somewhere to actually send to.
+
+    endpoint is the push service's own per-device URL (assigned by the
+    browser's push service — e.g. Chrome's FCM endpoint, or Apple's Web
+    Push endpoint once installed as a home-screen PWA on iOS 16.4+) and
+    is globally unique by construction, not just per-user: it's the
+    natural upsert key when a browser re-subscribes with the same
+    endpoint (e.g. after clearing the notification permission and
+    re-enabling it), so core.views.push_subscribe updates the existing
+    row in place rather than creating a duplicate.
+
+    p256dh/auth_key are the subscription's own encryption keys (from
+    PushSubscription.getKey() in the browser), required by the Web Push
+    protocol to encrypt a payload only that specific browser can read —
+    Notipa's server never sees the notification content in transit
+    beyond what it explicitly sends.
+
+    A subscription is removed in two ways: a user turning notifications
+    off explicitly (core.views.push_unsubscribe), or automatically by
+    core.push.send_push_notification when the push service itself
+    reports the endpoint is gone (410 Gone / 404 Not Found — the
+    browser uninstalled the app, cleared permissions, or the endpoint
+    simply expired). Either way, a dead subscription is deleted rather
+    than left around to keep failing silently.
+    """
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="push_subscriptions"
+    )
+    endpoint = models.URLField(max_length=500, unique=True)
+    p256dh = models.CharField(max_length=255)
+    auth_key = models.CharField(max_length=255)
+    user_agent = models.CharField(
+        max_length=255,
+        blank=True,
+        help_text="Informational only — lets a user tell devices apart if they enable notifications on more than one.",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["user"]),
+        ]
+
+    def __str__(self):
+        return f"{self.user} — push subscription ({self.user_agent or self.endpoint[:40]})"
+
+
 class MessageThread(UUIDModel):
     """
     A conversation that shares the Message model below in one of two

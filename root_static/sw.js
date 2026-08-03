@@ -91,3 +91,54 @@ self.addEventListener("fetch", (event) => {
     );
   }
 });
+
+// --- Web Push (Phase 1 build-sequence item 8) -----------------------------
+//
+// A push arrives here even if no Notipa tab is open — that's the whole
+// point of push over, say, a foreground-only in-app banner. The payload is
+// whatever core.push.send_push_notification sent as JSON (see that
+// function's docstring): { title, body, url }. Falls back to generic copy
+// if a push somehow arrives with no payload at all, rather than showing a
+// blank notification.
+self.addEventListener("push", (event) => {
+  let payload = { title: "Notipa", body: "You have a new update.", url: "/" };
+  if (event.data) {
+    try {
+      payload = event.data.json();
+    } catch (err) {
+      payload.body = event.data.text() || payload.body;
+    }
+  }
+
+  event.waitUntil(
+    self.registration.showNotification(payload.title || "Notipa", {
+      body: payload.body || "",
+      icon: "/static/core/icons/icon-192.png",
+      badge: "/static/core/icons/icon-192.png",
+      data: { url: payload.url || "/" },
+    })
+  );
+});
+
+// Clicking a notification focuses an already-open Notipa tab and
+// navigates it to the relevant page if one exists, rather than always
+// opening a new tab — closer to how a native app's notification tap
+// behaves than spawning duplicate windows every time.
+self.addEventListener("notificationclick", (event) => {
+  const targetUrl = (event.notification.data && event.notification.data.url) || "/";
+  event.notification.close();
+
+  event.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clients) => {
+      for (const client of clients) {
+        if ("focus" in client) {
+          client.navigate(targetUrl);
+          return client.focus();
+        }
+      }
+      if (self.clients.openWindow) {
+        return self.clients.openWindow(targetUrl);
+      }
+    })
+  );
+});

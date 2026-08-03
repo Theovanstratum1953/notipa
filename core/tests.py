@@ -1,6 +1,7 @@
 import shutil
 import tempfile
 from datetime import date, datetime, timedelta
+from unittest import mock
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
@@ -25,6 +26,7 @@ from .models import (
     MessageThreadRead,
     PermissionSlip,
     PermissionSlipResponse,
+    PushSubscription,
     ReportCard,
     ReportCardEntry,
     ReportCardRead,
@@ -35,6 +37,7 @@ from .models import (
     Student,
     Term,
 )
+from .push import push_configured, send_push_notification
 from .views import _sync_permission_slip_responses
 
 User = get_user_model()
@@ -4524,3 +4527,356 @@ class MessagingToggleTests(TestCase):
         self.client.login(username="admin_a", password="pw12345!")
         response = self.client.get(reverse("core:settings"))
         self.assertContains(response, "real commitment")
+
+
+class PushInfrastructureTests(TestCase):
+    """
+    Covers the server-side plumbing of Web Push (core.models.
+    PushSubscription, core.push, core.views.push_subscribe/
+    push_unsubscribe/app_notifications) — the last Phase 1
+    build-sequence item. Deliberately mocks pywebpush.webpush itself
+    rather than hitting a real push service: what matters here is that
+    Notipa calls it correctly and handles its outcomes correctly, not
+    whether a real browser's push endpoint is reachable from a test run.
+    """
+
+    def setUp(self):
+        self.school = School.objects.create(name="School A", country="PH")
+        self.guardian = User.objects.create_user(username="guardian_a", password="pw12345!")
+        SchoolMembership.objects.create(
+            user=self.guardian, school=self.school, role=SchoolMembership.Role.GUARDIAN
+        )
+
+    def _subscription_payload(self, endpoint="https://push.example.com/abc123"):
+        return {
+            "endpoint": endpoint,
+            "keys": {"p256dh": "fake-p256dh-key", "auth": "fake-auth-key"},
+        }
+
+    def test_anonymous_cannot_subscribe(self):
+        response = self.client.post(
+            reverse("core:push_subscribe"),
+            data=self._subscription_payload(),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 302)  # redirected to login
+        self.assertFalse(PushSubscription.objects.exists())
+
+    def test_subscribe_creates_subscription_for_logged_in_user(self):
+        self.client.login(username="guardian_a", password="pw12345!")
+        response = self.client.post(
+            reverse("core:push_subscribe"),
+            data=self._subscription_payload(),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200)
+        sub = PushSubscription.objects.get()
+        self.assertEqual(sub.user, self.guardian)
+        self.assertEqual(sub.p256dh, "fake-p256dh-key")
+        self.assertEqual(sub.auth_key, "fake-auth-key")
+
+    def test_resubscribing_same_endpoint_updates_in_place(self):
+        self.client.login(username="guardian_a", password="pw12345!")
+        self.client.post(
+            reverse("core:push_subscribe"),
+            data=self._subscription_payload(),
+            content_type="application/json",
+        )
+        payload = self._subscription_payload()
+        payload["keys"]["auth"] = "rotated-auth-key"
+        self.client.post(
+            reverse("core:push_subscribe"), data=payload, content_type="application/json"
+        )
+        self.assertEqual(PushSubscription.objects.count(), 1)
+        self.assertEqual(PushSubscription.objects.get().auth_key, "rotated-auth-key")
+
+    def test_malformed_subscribe_payload_rejected(self):
+        self.client.login(username="guardian_a", password="pw12345!")
+        response = self.client.post(
+            reverse("core:push_subscribe"),
+            data={"nonsense": "value"},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(PushSubscription.objects.exists())
+
+    def test_unsubscribe_removes_only_the_requesting_users_own_subscription(self):
+        other_guardian = User.objects.create_user(username="guardian_b", password="pw12345!")
+        SchoolMembership.objects.create(
+            user=other_guardian, school=self.school, role=SchoolMembership.Role.GUARDIAN
+        )
+        PushSubscription.objects.create(
+            user=self.guardian,
+            endpoint="https://push.example.com/mine",
+            p256dh="k1",
+            auth_key="a1",
+        )
+        PushSubscription.objects.create(
+            user=other_guardian,
+            endpoint="https://push.example.com/not-mine",
+            p256dh="k2",
+            auth_key="a2",
+        )
+        self.client.login(username="guardian_a", password="pw12345!")
+        self.client.post(
+            reverse("core:push_unsubscribe"),
+            data={"endpoint": "https://push.example.com/not-mine"},
+            content_type="application/json",
+        )
+        # Someone else's subscription is untouched — a guardian can only
+        # ever remove their own, even if they somehow know another
+        # endpoint string.
+        self.assertEqual(PushSubscription.objects.count(), 2)
+
+        self.client.post(
+            reverse("core:push_unsubscribe"),
+            data={"endpoint": "https://push.example.com/mine"},
+            content_type="application/json",
+        )
+        self.assertEqual(PushSubscription.objects.count(), 1)
+        self.assertFalse(PushSubscription.objects.filter(user=self.guardian).exists())
+
+    def test_app_notifications_page_loads_for_any_role(self):
+        self.client.login(username="guardian_a", password="pw12345!")
+        response = self.client.get(reverse("core:app_notifications"))
+        self.assertEqual(response.status_code, 200)
+
+    def test_push_not_configured_without_vapid_keys(self):
+        with override_settings(VAPID_PUBLIC_KEY="", VAPID_PRIVATE_KEY=""):
+            self.assertFalse(push_configured())
+
+    @override_settings(VAPID_PUBLIC_KEY="pub", VAPID_PRIVATE_KEY="priv")
+    def test_push_configured_with_both_keys_set(self):
+        self.assertTrue(push_configured())
+
+    @override_settings(VAPID_PUBLIC_KEY="pub", VAPID_PRIVATE_KEY="priv")
+    def test_dead_subscription_pruned_on_410(self):
+        from pywebpush import WebPushException
+
+        sub = PushSubscription.objects.create(
+            user=self.guardian, endpoint="https://push.example.com/gone",
+            p256dh="k", auth_key="a",
+        )
+        fake_response = mock.Mock(status_code=410)
+        with mock.patch(
+            "core.push.webpush", side_effect=WebPushException("gone", response=fake_response)
+        ):
+            result = send_push_notification(sub, "Title", "Body")
+        self.assertFalse(result)
+        self.assertFalse(PushSubscription.objects.filter(pk=sub.pk).exists())
+
+    @override_settings(VAPID_PUBLIC_KEY="pub", VAPID_PRIVATE_KEY="priv")
+    def test_successful_send_keeps_subscription_and_returns_true(self):
+        sub = PushSubscription.objects.create(
+            user=self.guardian, endpoint="https://push.example.com/works",
+            p256dh="k", auth_key="a",
+        )
+        with mock.patch("core.push.webpush", return_value=mock.Mock()) as mocked:
+            result = send_push_notification(sub, "Title", "Body", url="/somewhere/")
+        self.assertTrue(result)
+        self.assertTrue(PushSubscription.objects.filter(pk=sub.pk).exists())
+        mocked.assert_called_once()
+        call_kwargs = mocked.call_args.kwargs
+        self.assertEqual(call_kwargs["subscription_info"]["endpoint"], sub.endpoint)
+
+
+class PushNotificationTriggerTests(TestCase):
+    """
+    Covers every "new content" trigger that should send a push
+    notification: Announcements (publish), Homework, Fee Notices,
+    Permission Slips, Messaging (one-to-one and class), and Report
+    Cards (publish, including the bulk publish action). Every content
+    section it would notify guardians about now exists (the roadmap's
+    own framing for why this feature was next), so each of those is
+    checked here — not just that notify_users gets called, but that
+    it's called with exactly the right recipients and no one else
+    (the same cross-class/cross-school leakage concern every other
+    feature in this app is tested against).
+
+    core.views.notify_users is mocked at the point views.py imports it,
+    rather than exercising the real Web Push send — this suite is about
+    "does the right trigger notify the right people," which
+    PushInfrastructureTests above already separately confirms actually
+    sends correctly once called.
+    """
+
+    def setUp(self):
+        self.school = School.objects.create(name="School A", country="PH")
+        self.admin = User.objects.create_user(username="admin_a", password="pw12345!")
+        SchoolMembership.objects.create(
+            user=self.admin, school=self.school, role=SchoolMembership.Role.ADMIN
+        )
+        self.teacher = User.objects.create_user(username="teacher_a", password="pw12345!")
+        self.teacher_membership = SchoolMembership.objects.create(
+            user=self.teacher, school=self.school, role=SchoolMembership.Role.TEACHER
+        )
+        self.class_a = SchoolClass.objects.create(
+            school=self.school, name="Grade 4", academic_year="2026-2027",
+            homeroom_teacher=self.teacher_membership,
+        )
+        self.class_b = SchoolClass.objects.create(
+            school=self.school, name="Grade 5", academic_year="2026-2027"
+        )
+        self.student_a = Student.objects.create(
+            school=self.school, school_class=self.class_a, first_name="Ana", last_name="Reyes"
+        )
+        self.student_b = Student.objects.create(
+            school=self.school, school_class=self.class_b, first_name="Ben", last_name="Cruz"
+        )
+        self.guardian_a = User.objects.create_user(username="guardian_a", password="pw12345!")
+        SchoolMembership.objects.create(
+            user=self.guardian_a, school=self.school, role=SchoolMembership.Role.GUARDIAN
+        )
+        GuardianLink.objects.create(guardian=self.guardian_a, student=self.student_a)
+        self.guardian_b = User.objects.create_user(username="guardian_b", password="pw12345!")
+        SchoolMembership.objects.create(
+            user=self.guardian_b, school=self.school, role=SchoolMembership.Role.GUARDIAN
+        )
+        GuardianLink.objects.create(guardian=self.guardian_b, student=self.student_b)
+
+    def _recipient_ids(self, mocked):
+        (recipients, *_), _ = mocked.call_args
+        return {u.id for u in recipients}
+
+    @mock.patch("core.views.notify_users")
+    def test_school_wide_announcement_notifies_every_guardian(self, mocked):
+        self.client.login(username="admin_a", password="pw12345!")
+        response = self.client.post(
+            reverse("core:announcement_new"),
+            {"title": "Welcome back", "body": "...", "school_class": ""},
+        )
+        announcement = Announcement.objects.get(title="Welcome back")
+        self.client.post(reverse("core:announcement_publish", args=[announcement.pk]))
+        self.assertEqual(self._recipient_ids(mocked), {self.guardian_a.id, self.guardian_b.id})
+
+    @mock.patch("core.views.notify_users")
+    def test_class_scoped_announcement_notifies_only_that_classs_guardians(self, mocked):
+        self.client.login(username="admin_a", password="pw12345!")
+        self.client.post(
+            reverse("core:announcement_new"),
+            {"title": "Grade 4 only", "body": "...", "school_class": self.class_a.pk},
+        )
+        announcement = Announcement.objects.get(title="Grade 4 only")
+        self.client.post(reverse("core:announcement_publish", args=[announcement.pk]))
+        self.assertEqual(self._recipient_ids(mocked), {self.guardian_a.id})
+
+    @mock.patch("core.views.notify_users")
+    def test_homework_notifies_only_its_classs_guardians(self, mocked):
+        self.client.login(username="teacher_a", password="pw12345!")
+        self.client.post(
+            reverse("core:homework_new"),
+            {"school_class": self.class_a.pk, "title": "Reading", "description": ""},
+        )
+        self.assertTrue(mocked.called)
+        self.assertEqual(self._recipient_ids(mocked), {self.guardian_a.id})
+
+    @mock.patch("core.views.notify_users")
+    def test_fee_notice_notifies_only_that_students_guardians(self, mocked):
+        self.client.login(username="admin_a", password="pw12345!")
+        self.client.post(
+            reverse("core:fee_notice_new"),
+            {
+                "student": self.student_a.pk, "title": "Tuition", "description": "",
+                "amount": "100.00", "currency": "PHP", "due_date": "2026-09-01",
+            },
+        )
+        self.assertEqual(self._recipient_ids(mocked), {self.guardian_a.id})
+
+    @mock.patch("core.views.notify_users")
+    def test_permission_slip_notifies_only_eligible_students_guardians(self, mocked):
+        self.client.login(username="admin_a", password="pw12345!")
+        self.client.post(
+            reverse("core:permission_slip_new"),
+            {"title": "Field trip", "description": "", "school_class": self.class_a.pk},
+        )
+        self.assertEqual(self._recipient_ids(mocked), {self.guardian_a.id})
+
+    @mock.patch("core.views.notify_users")
+    def test_report_card_publish_notifies_only_that_students_guardians(self, mocked):
+        term = Term.objects.create(
+            school=self.school, name="Term 1",
+            start_date=date(2026, 6, 1), end_date=date(2026, 8, 31),
+        )
+        report = ReportCard.objects.create(
+            student=self.student_a, term=term, school_class=self.class_a,
+        )
+        self.client.login(username="teacher_a", password="pw12345!")
+        data = {
+            "comment": "Doing well",
+            "entries-TOTAL_FORMS": "0", "entries-INITIAL_FORMS": "0",
+            "entries-MIN_NUM_FORMS": "0", "entries-MAX_NUM_FORMS": "1000",
+            "publish": "1",
+        }
+        self.client.post(
+            reverse("core:report_card_edit", args=[self.class_a.pk, term.pk, self.student_a.pk]),
+            data,
+        )
+        self.assertEqual(self._recipient_ids(mocked), {self.guardian_a.id})
+
+    @mock.patch("core.views.notify_users")
+    def test_publish_all_drafts_notifies_each_published_students_guardians(self, mocked):
+        term = Term.objects.create(
+            school=self.school, name="Term 1",
+            start_date=date(2026, 6, 1), end_date=date(2026, 8, 31),
+        )
+        other_student = Student.objects.create(
+            school=self.school, school_class=self.class_a, first_name="Cara", last_name="Dizon"
+        )
+        other_guardian = User.objects.create_user(username="guardian_c", password="pw12345!")
+        SchoolMembership.objects.create(
+            user=other_guardian, school=self.school, role=SchoolMembership.Role.GUARDIAN
+        )
+        GuardianLink.objects.create(guardian=other_guardian, student=other_student)
+
+        ReportCard.objects.create(
+            student=self.student_a, term=term, school_class=self.class_a,
+            status=ReportCard.Status.DRAFT,
+        )
+        ReportCard.objects.create(
+            student=other_student, term=term, school_class=self.class_a,
+            status=ReportCard.Status.DRAFT,
+        )
+        self.client.login(username="teacher_a", password="pw12345!")
+        self.client.post(reverse("core:report_cards_publish_all", args=[self.class_a.pk, term.pk]))
+
+        notified_ids = set()
+        for call in mocked.call_args_list:
+            (recipients, *_), _ = call
+            notified_ids |= {u.id for u in recipients}
+        self.assertEqual(notified_ids, {self.guardian_a.id, other_guardian.id})
+
+    def _enable_messaging(self):
+        self.school.messaging_enabled = True
+        self.school.save()
+
+    @mock.patch("core.views.notify_users")
+    def test_one_to_one_message_notifies_only_the_other_party(self, mocked):
+        self._enable_messaging()
+        self.client.login(username="teacher_a", password="pw12345!")
+        start_response = self.client.get(
+            reverse("core:message_thread_start", args=[self.student_a.pk, self.guardian_a.pk])
+        )
+        thread = MessageThread.objects.get(
+            thread_type=MessageThread.ThreadType.ONE_TO_ONE, student=self.student_a
+        )
+        self.client.post(reverse("core:message_thread_detail", args=[thread.pk]), {"body": "Hi!"})
+        self.assertEqual(self._recipient_ids(mocked), {self.guardian_a.id})
+
+        mocked.reset_mock()
+        self.client.logout()
+        self.client.login(username="guardian_a", password="pw12345!")
+        self.client.post(reverse("core:message_thread_detail", args=[thread.pk]), {"body": "Hi back!"})
+        self.assertEqual(self._recipient_ids(mocked), {self.teacher.id})
+
+    @mock.patch("core.views.notify_users")
+    def test_class_thread_message_notifies_every_other_participant(self, mocked):
+        self._enable_messaging()
+        from .messaging import sync_class_thread
+
+        thread = sync_class_thread(self.class_a)
+        self.assertIsNotNone(thread)
+        self.client.login(username="teacher_a", password="pw12345!")
+        self.client.post(
+            reverse("core:message_thread_detail", args=[thread.pk]), {"body": "Hello class"}
+        )
+        self.assertEqual(self._recipient_ids(mocked), {self.guardian_a.id})

@@ -10,6 +10,9 @@ urlpatterns = [
     path("switch-school/", views.switch_school, name="switch_school"),
     path("setup/school/", views.school_setup, name="school_setup"),
     path("wiki/", views.wiki, name="wiki"),
+    path("app/", views.app_notifications, name="app_notifications"),
+    path("push/subscribe/", views.push_subscribe, name="push_subscribe"),
+    path("push/unsubscribe/", views.push_unsubscribe, name="push_unsubscribe"),
     path("my-children/<uuid:pk>/", views.my_child_detail, name="my_child_detail"),
     path(
         "my-children/<uuid:pk>/attendance/",

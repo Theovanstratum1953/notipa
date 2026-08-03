@@ -16,9 +16,10 @@ Actively under development. Delivered and tested so far:
 - **Guardian ↔ Student linking** — link guardians to students (and vice versa) from either side, with relationship type and a primary-contact flag.
 - **Announcements** — school-wide or class-scoped, with a draft/publish workflow for staff and a read-tracked, filtered view for guardians.
 - **Guardian-facing dashboard** — a guardian sees only their own linked children and the announcements relevant to them, never the full school roster.
+- **PWA install + web push notifications** — installable as a home-screen/desktop app (manifest + service worker), plus opt-in push notifications on new announcements, homework, fee notices, permission slips, report cards, and messages. Push is off until a VAPID key pair is configured (see Environment variables below) — the app works normally without one.
 - **In-app User Manual** — built-in documentation for the above, linked from the sidebar.
 
-Still to come: Homework, Fee Notices, Permission Slips, SMS-based guardian invites, and PWA/push notifications. See `notipa-development-handover-plan.md` for the detailed build log and roadmap.
+Still to come: SMS-based guardian invites. See `notipa-development-handover-plan.md` for the detailed build log and roadmap.
 
 ## Tech stack
 
@@ -67,6 +68,8 @@ See `env.example.txt` for the full list. The important ones:
 | `DEBUG` | Defaults to `True` in development, `False` in production. |
 | `ALLOWED_HOSTS`, `CSRF_TRUSTED_ORIGINS` | Standard Django host/origin allowlists. |
 | `DB_*` | PostgreSQL connection settings, only read when `DJANGO_ENV=production`. |
+| `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` | Optional. Web Push key pair — leave both blank and push notifications are simply unavailable (the app works fine without them). Generate a pair per environment with `python -m py_vapid --gen`; never share one between dev and production. |
+| `VAPID_ADMIN_EMAIL` | Contact address included in push requests, as required by the Web Push protocol. |
 
 ### Running tests
 

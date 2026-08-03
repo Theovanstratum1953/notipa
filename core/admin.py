@@ -14,6 +14,7 @@ from .models import (
     MessageThreadRead,
     PermissionSlip,
     PermissionSlipResponse,
+    PushSubscription,
     ReportCard,
     ReportCardEntry,
     ReportCardRead,
@@ -244,6 +245,13 @@ class MessageThreadAdmin(admin.ModelAdmin):
     )
     autocomplete_fields = ["school", "student", "school_class", "guardian", "teacher", "participants"]
     inlines = [MessageInline, MessageThreadReadInline]
+
+
+@admin.register(PushSubscription)
+class PushSubscriptionAdmin(admin.ModelAdmin):
+    list_display = ("user", "user_agent", "created_at")
+    search_fields = ("user__username", "user__first_name", "user__last_name", "endpoint")
+    autocomplete_fields = ["user"]
 
 
 @admin.register(Message)
