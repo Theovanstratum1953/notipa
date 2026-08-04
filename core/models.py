@@ -1240,3 +1240,79 @@ class MessageThreadRead(UUIDModel):
 
     def __str__(self):
         return f"{self.user} read {self.thread} up to {self.last_read_at}"
+
+
+class ExportJob(UUIDModel):
+    """
+    A background CSV/PDF export (roadmap: "Data Export Tools" Phase 3 —
+    "move exports above a size threshold to a background task ... with
+    an in-app notification when the file's ready"). Most exports run
+    synchronously and never create a row here at all — see
+    core.exports.BACKGROUND_EXPORT_ROW_THRESHOLD and
+    core.views.export_download, which only creates an ExportJob once a
+    queryset is bigger than that threshold, so a large school's
+    full-year export doesn't tie up a web request/gunicorn worker.
+
+    Deliberately not built on a separate task-queue dependency (Celery,
+    Redis, etc.) — running the job in a plain background thread
+    (core.exports.run_export_job, dispatched from the view) is "a
+    simple queue" in the sense the roadmap explicitly allows for a
+    project with no async task runner yet, and keeps the self-hosted
+    footprint exactly what it already was (no new service to run
+    alongside Postgres). filters stores exactly the class_id/date_from/
+    date_to the admin picked when the export was queued, so
+    run_export_job can rebuild the identical queryset later without
+    needing the original request.
+
+    file is empty until status becomes READY; a FAILED job keeps
+    error_message but never gets a file. Nothing here is auto-deleted —
+    same "never delete without being asked" posture as every other
+    record in this app — so an old export stays downloadable (or at
+    least visible as a past attempt) until an admin cleans it up
+    directly, e.g. via the media directory on disk.
+    """
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        RUNNING = "running", "Running"
+        READY = "ready", "Ready"
+        FAILED = "failed", "Failed"
+
+    class Format(models.TextChoices):
+        CSV = "csv", "CSV"
+        PDF = "pdf", "PDF"
+
+    school = models.ForeignKey(School, on_delete=models.CASCADE, related_name="export_jobs")
+    requested_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name="export_jobs",
+    )
+    export_key = models.CharField(
+        max_length=50, help_text="Key into core.exports.REGISTRY for the record type exported."
+    )
+    format = models.CharField(max_length=3, choices=Format.choices, default=Format.CSV)
+    filters = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="class_id/date_from/date_to exactly as applied when this job was queued.",
+    )
+    status = models.CharField(max_length=10, choices=Status.choices, default=Status.PENDING)
+    file = models.FileField(upload_to="exports/%Y/%m/", blank=True, null=True)
+    row_count = models.PositiveIntegerField(null=True, blank=True)
+    error_message = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["school", "-created_at"]),
+        ]
+
+    def __str__(self):
+        return (
+            f"{self.export_key} export ({self.get_format_display()}) — "
+            f"{self.school} [{self.get_status_display()}]"
+        )

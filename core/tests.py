@@ -1,3 +1,5 @@
+import csv
+import io
 import shutil
 import tempfile
 from datetime import date, datetime, timedelta
@@ -17,6 +19,7 @@ from .models import (
     Announcement,
     AnnouncementRead,
     AttendanceRecord,
+    ExportJob,
     FeeNotice,
     GuardianLink,
     Homework,
@@ -4880,3 +4883,393 @@ class PushNotificationTriggerTests(TestCase):
             reverse("core:message_thread_detail", args=[thread.pk]), {"body": "Hello class"}
         )
         self.assertEqual(self._recipient_ids(mocked), {self.guardian_a.id})
+
+
+class DataExportTests(TestCase):
+    """
+    Covers core.exports and the export panel/download views
+    (core.views.export_panel/export_download) — the roadmap's "Data
+    Export Tools": one-click CSV export of a school's own records,
+    scoped so an export can never cross a school boundary and never
+    reachable by a role other than admin.
+    """
+
+    def setUp(self):
+        self.school_a = School.objects.create(name="School A", country="PH")
+        self.school_b = School.objects.create(name="School B", country="PH")
+
+        self.admin_a = User.objects.create_user(username="admin_a", password="pw12345!")
+        SchoolMembership.objects.create(
+            user=self.admin_a, school=self.school_a, role=SchoolMembership.Role.ADMIN
+        )
+        self.teacher_a = User.objects.create_user(username="teacher_a", password="pw12345!")
+        SchoolMembership.objects.create(
+            user=self.teacher_a, school=self.school_a, role=SchoolMembership.Role.TEACHER
+        )
+        self.guardian_a = User.objects.create_user(
+            username="guardian_a", password="pw12345!", first_name="Gina", last_name="Alpha"
+        )
+        SchoolMembership.objects.create(
+            user=self.guardian_a, school=self.school_a, role=SchoolMembership.Role.GUARDIAN
+        )
+
+        self.admin_b = User.objects.create_user(username="admin_b", password="pw12345!")
+        SchoolMembership.objects.create(
+            user=self.admin_b, school=self.school_b, role=SchoolMembership.Role.ADMIN
+        )
+        self.guardian_b = User.objects.create_user(
+            username="guardian_b", password="pw12345!", first_name="Gary", last_name="Beta"
+        )
+        SchoolMembership.objects.create(
+            user=self.guardian_b, school=self.school_b, role=SchoolMembership.Role.GUARDIAN
+        )
+
+        self.class_a = SchoolClass.objects.create(
+            school=self.school_a, name="Grade 1", academic_year="2026-2027"
+        )
+        self.class_a2 = SchoolClass.objects.create(
+            school=self.school_a, name="Grade 2", academic_year="2026-2027"
+        )
+        self.class_b = SchoolClass.objects.create(
+            school=self.school_b, name="Grade 1", academic_year="2026-2027"
+        )
+
+        self.student_a = Student.objects.create(
+            school=self.school_a,
+            school_class=self.class_a,
+            first_name="Ana",
+            last_name="Alpha",
+        )
+        self.student_a2 = Student.objects.create(
+            school=self.school_a,
+            school_class=self.class_a2,
+            first_name="Bea",
+            last_name="Alpha",
+        )
+        self.student_b = Student.objects.create(
+            school=self.school_b,
+            school_class=self.class_b,
+            first_name="Ben",
+            last_name="Beta",
+        )
+
+        GuardianLink.objects.create(guardian=self.guardian_a, student=self.student_a)
+        GuardianLink.objects.create(guardian=self.guardian_b, student=self.student_b)
+
+        Announcement.objects.create(
+            school=self.school_a, title="School A notice", body="Hello", author=self.admin_a
+        )
+        Announcement.objects.create(
+            school=self.school_b, title="School B notice", body="Hello", author=self.admin_b
+        )
+
+        Homework.objects.create(
+            school_class=self.class_a, title="Reading log", created_by=self.teacher_a
+        )
+        Homework.objects.create(school_class=self.class_b, title="Other school homework")
+
+        FeeNotice.objects.create(
+            school=self.school_a,
+            student=self.student_a,
+            title="Term 1 tuition",
+            amount="100.00",
+            due_date=date(2026, 9, 1),
+        )
+        FeeNotice.objects.create(
+            school=self.school_b,
+            student=self.student_b,
+            title="Term 1 tuition (B)",
+            amount="200.00",
+            due_date=date(2026, 9, 1),
+        )
+
+        slip_a = PermissionSlip.objects.create(school=self.school_a, title="Field trip")
+        PermissionSlipResponse.objects.create(
+            permission_slip=slip_a,
+            student=self.student_a,
+            guardian=self.guardian_a,
+            response=PermissionSlipResponse.Response.YES,
+        )
+        slip_b = PermissionSlip.objects.create(school=self.school_b, title="Field trip (B)")
+        PermissionSlipResponse.objects.create(
+            permission_slip=slip_b,
+            student=self.student_b,
+            guardian=self.guardian_b,
+            response=PermissionSlipResponse.Response.YES,
+        )
+
+    def _rows(self, response):
+        content = response.content.decode("utf-8")
+        reader = csv.reader(io.StringIO(content))
+        rows = list(reader)
+        return rows[0], rows[1:]
+
+    # -- access control -------------------------------------------------
+
+    def test_admin_can_view_export_panel(self):
+        self.client.login(username="admin_a", password="pw12345!")
+        response = self.client.get(reverse("core:exports"))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Students")
+
+    def test_teacher_cannot_view_export_panel(self):
+        self.client.login(username="teacher_a", password="pw12345!")
+        response = self.client.get(reverse("core:exports"))
+        self.assertEqual(response.status_code, 403)
+
+    def test_guardian_cannot_view_export_panel(self):
+        self.client.login(username="guardian_a", password="pw12345!")
+        response = self.client.get(reverse("core:exports"))
+        self.assertEqual(response.status_code, 403)
+
+    def test_anonymous_redirected_to_login(self):
+        response = self.client.get(reverse("core:exports"))
+        self.assertEqual(response.status_code, 302)
+        self.assertIn(reverse("login"), response.url)
+
+    def test_teacher_cannot_download_export(self):
+        self.client.login(username="teacher_a", password="pw12345!")
+        response = self.client.get(reverse("core:export_download"), {"type": "students"})
+        self.assertEqual(response.status_code, 403)
+
+    def test_unknown_type_redirects_with_error(self):
+        self.client.login(username="admin_a", password="pw12345!")
+        response = self.client.get(
+            reverse("core:export_download"), {"type": "not-a-real-type"}
+        )
+        self.assertRedirects(response, reverse("core:exports"))
+
+    # -- scoping ----------------------------------------------------------
+
+    def test_students_export_only_contains_own_school(self):
+        self.client.login(username="admin_a", password="pw12345!")
+        response = self.client.get(reverse("core:export_download"), {"type": "students"})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "text/csv")
+        header, rows = self._rows(response)
+        names = {row[0] for row in rows}
+        self.assertIn("Ana", names)
+        self.assertIn("Bea", names)
+        self.assertNotIn("Ben", names)
+
+    def test_guardians_export_only_contains_own_school(self):
+        self.client.login(username="admin_a", password="pw12345!")
+        response = self.client.get(reverse("core:export_download"), {"type": "guardians"})
+        _, rows = self._rows(response)
+        names = {row[0] for row in rows}
+        self.assertIn("Gina Alpha", names)
+        self.assertNotIn("Gary Beta", names)
+
+    def test_guardian_links_export_only_contains_own_school(self):
+        self.client.login(username="admin_a", password="pw12345!")
+        response = self.client.get(reverse("core:export_download"), {"type": "guardian_links"})
+        _, rows = self._rows(response)
+        student_names = {row[1] for row in rows}
+        self.assertIn("Ana Alpha", student_names)
+        self.assertNotIn("Ben Beta", student_names)
+
+    def test_announcements_export_only_contains_own_school(self):
+        self.client.login(username="admin_a", password="pw12345!")
+        response = self.client.get(reverse("core:export_download"), {"type": "announcements"})
+        _, rows = self._rows(response)
+        titles = {row[0] for row in rows}
+        self.assertIn("School A notice", titles)
+        self.assertNotIn("School B notice", titles)
+
+    def test_homework_export_only_contains_own_school(self):
+        self.client.login(username="admin_a", password="pw12345!")
+        response = self.client.get(reverse("core:export_download"), {"type": "homework"})
+        _, rows = self._rows(response)
+        titles = {row[0] for row in rows}
+        self.assertIn("Reading log", titles)
+        self.assertNotIn("Other school homework", titles)
+
+    def test_fee_notices_export_only_contains_own_school(self):
+        self.client.login(username="admin_a", password="pw12345!")
+        response = self.client.get(reverse("core:export_download"), {"type": "fee_notices"})
+        _, rows = self._rows(response)
+        titles = {row[1] for row in rows}
+        self.assertIn("Term 1 tuition", titles)
+        self.assertNotIn("Term 1 tuition (B)", titles)
+
+    def test_permission_slip_responses_export_only_contains_own_school(self):
+        self.client.login(username="admin_a", password="pw12345!")
+        response = self.client.get(
+            reverse("core:export_download"), {"type": "permission_slip_responses"}
+        )
+        _, rows = self._rows(response)
+        slips = {row[0] for row in rows}
+        self.assertIn("Field trip", slips)
+        self.assertNotIn("Field trip (B)", slips)
+
+    # -- filters ------------------------------------------------------
+
+    def test_class_filter_narrows_to_one_class(self):
+        self.client.login(username="admin_a", password="pw12345!")
+        response = self.client.get(
+            reverse("core:export_download"),
+            {"type": "students", "class_id": str(self.class_a.pk)},
+        )
+        _, rows = self._rows(response)
+        names = {row[0] for row in rows}
+        self.assertEqual(names, {"Ana"})
+
+    def test_class_filter_from_another_school_is_ignored(self):
+        self.client.login(username="admin_a", password="pw12345!")
+        response = self.client.get(
+            reverse("core:export_download"),
+            {"type": "students", "class_id": str(self.class_b.pk)},
+        )
+        _, rows = self._rows(response)
+        names = {row[0] for row in rows}
+        self.assertEqual(names, {"Ana", "Bea"})
+
+    def test_date_range_filters_fee_notices_by_due_date(self):
+        FeeNotice.objects.create(
+            school=self.school_a,
+            student=self.student_a,
+            title="Term 2 tuition",
+            amount="150.00",
+            due_date=date(2027, 1, 15),
+        )
+        self.client.login(username="admin_a", password="pw12345!")
+        response = self.client.get(
+            reverse("core:export_download"),
+            {"type": "fee_notices", "date_to": "2026-12-31"},
+        )
+        _, rows = self._rows(response)
+        titles = {row[1] for row in rows}
+        self.assertIn("Term 1 tuition", titles)
+        self.assertNotIn("Term 2 tuition", titles)
+
+    def test_malformed_date_is_ignored_not_an_error(self):
+        self.client.login(username="admin_a", password="pw12345!")
+        response = self.client.get(
+            reverse("core:export_download"),
+            {"type": "students", "date_from": "not-a-date"},
+        )
+        self.assertEqual(response.status_code, 200)
+        _, rows = self._rows(response)
+        self.assertEqual(len(rows), 2)
+
+    def test_csv_filename_includes_school_and_type(self):
+        self.client.login(username="admin_a", password="pw12345!")
+        response = self.client.get(reverse("core:export_download"), {"type": "students"})
+        self.assertIn("School-A-students-", response["Content-Disposition"])
+
+    # -- PDF export -----------------------------------------------------
+
+    def test_pdf_export_returns_pdf_content(self):
+        self.client.login(username="admin_a", password="pw12345!")
+        response = self.client.get(
+            reverse("core:export_download"), {"type": "students", "format": "pdf"}
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "application/pdf")
+        self.assertTrue(response.content.startswith(b"%PDF"))
+        self.assertIn("School-A-students-", response["Content-Disposition"])
+        self.assertTrue(response["Content-Disposition"].endswith('.pdf"'))
+
+    def test_unknown_format_falls_back_to_csv(self):
+        self.client.login(username="admin_a", password="pw12345!")
+        response = self.client.get(
+            reverse("core:export_download"), {"type": "students", "format": "xlsx"}
+        )
+        self.assertEqual(response["Content-Type"], "text/csv")
+
+    # -- background jobs (Phase 3) --------------------------------------
+
+    @mock.patch("core.exports.BACKGROUND_EXPORT_ROW_THRESHOLD", 1)
+    def test_large_export_is_queued_as_a_background_job_instead_of_downloading(self):
+        self.client.login(username="admin_a", password="pw12345!")
+        response = self.client.get(reverse("core:export_download"), {"type": "students"})
+        # Redirects back to the panel rather than returning a file directly.
+        self.assertRedirects(response, reverse("core:exports"))
+
+        job = ExportJob.objects.get(school=self.school_a, export_key="students")
+        self.assertEqual(job.status, ExportJob.Status.READY)
+        self.assertEqual(job.format, ExportJob.Format.CSV)
+        self.assertEqual(job.requested_by, self.admin_a)
+        self.assertEqual(job.row_count, 2)
+        self.assertTrue(job.file)
+
+    @mock.patch("core.exports.BACKGROUND_EXPORT_ROW_THRESHOLD", 1)
+    def test_background_job_appears_on_export_panel(self):
+        self.client.login(username="admin_a", password="pw12345!")
+        self.client.get(reverse("core:export_download"), {"type": "students"})
+        response = self.client.get(reverse("core:exports"))
+        self.assertEqual(len(response.context["jobs"]), 1)
+        self.assertEqual(response.context["jobs"][0].export_key, "students")
+
+    @mock.patch("core.exports.BACKGROUND_EXPORT_ROW_THRESHOLD", 1)
+    def test_background_job_only_contains_own_school_data(self):
+        self.client.login(username="admin_a", password="pw12345!")
+        self.client.get(reverse("core:export_download"), {"type": "students"})
+        job = ExportJob.objects.get(school=self.school_a, export_key="students")
+        content = job.file.read().decode("utf-8")
+        self.assertIn("Ana", content)
+        self.assertNotIn("Ben", content)
+
+    @mock.patch("core.exports.BACKGROUND_EXPORT_ROW_THRESHOLD", 0)
+    def test_background_job_respects_class_and_date_filters(self):
+        self.client.login(username="admin_a", password="pw12345!")
+        self.client.get(
+            reverse("core:export_download"),
+            {"type": "students", "class_id": str(self.class_a.pk)},
+        )
+        job = ExportJob.objects.get(school=self.school_a, export_key="students")
+        self.assertEqual(job.filters["class_id"], str(self.class_a.pk))
+        content = job.file.read().decode("utf-8")
+        self.assertIn("Ana", content)
+        self.assertNotIn("Bea", content)
+
+    @mock.patch("core.exports.BACKGROUND_EXPORT_ROW_THRESHOLD", 1)
+    def test_background_job_can_render_pdf(self):
+        self.client.login(username="admin_a", password="pw12345!")
+        self.client.get(reverse("core:export_download"), {"type": "students", "format": "pdf"})
+        job = ExportJob.objects.get(school=self.school_a, export_key="students")
+        self.assertEqual(job.format, ExportJob.Format.PDF)
+        self.assertTrue(job.file.name.endswith(".pdf"))
+        self.assertTrue(job.file.read().startswith(b"%PDF"))
+
+    @mock.patch("core.exports.BACKGROUND_EXPORT_ROW_THRESHOLD", 1)
+    def test_ready_job_can_be_downloaded(self):
+        self.client.login(username="admin_a", password="pw12345!")
+        self.client.get(reverse("core:export_download"), {"type": "students"})
+        job = ExportJob.objects.get(school=self.school_a, export_key="students")
+        response = self.client.get(reverse("core:export_job_download", args=[job.pk]))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "text/csv")
+
+    @mock.patch("core.exports.BACKGROUND_EXPORT_ROW_THRESHOLD", 1)
+    def test_job_from_another_school_is_a_404(self):
+        self.client.login(username="admin_a", password="pw12345!")
+        self.client.get(reverse("core:export_download"), {"type": "students"})
+        job = ExportJob.objects.get(school=self.school_a, export_key="students")
+
+        self.client.logout()
+        self.client.login(username="admin_b", password="pw12345!")
+        response = self.client.get(reverse("core:export_job_download", args=[job.pk]))
+        self.assertEqual(response.status_code, 404)
+
+    def test_pending_job_download_redirects_with_message(self):
+        job = ExportJob.objects.create(
+            school=self.school_a,
+            requested_by=self.admin_a,
+            export_key="students",
+            format=ExportJob.Format.CSV,
+            status=ExportJob.Status.RUNNING,
+        )
+        self.client.login(username="admin_a", password="pw12345!")
+        response = self.client.get(reverse("core:export_job_download", args=[job.pk]))
+        self.assertRedirects(response, reverse("core:exports"))
+
+    @mock.patch("core.exports.render_bytes", side_effect=RuntimeError("boom"))
+    @mock.patch("core.exports.BACKGROUND_EXPORT_ROW_THRESHOLD", 1)
+    def test_failed_job_records_error_and_never_leaves_file_empty(self, mocked_render):
+        self.client.login(username="admin_a", password="pw12345!")
+        self.client.get(reverse("core:export_download"), {"type": "students"})
+        job = ExportJob.objects.get(school=self.school_a, export_key="students")
+        self.assertEqual(job.status, ExportJob.Status.FAILED)
+        self.assertIn("boom", job.error_message)
+        self.assertFalse(job.file)

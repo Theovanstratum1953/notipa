@@ -1,4 +1,5 @@
 import json
+import threading
 from datetime import date, timedelta
 
 from django.conf import settings as django_settings
@@ -6,7 +7,7 @@ from django.contrib import messages
 from django.contrib.auth import get_user_model
 from django.contrib.auth.decorators import login_required
 from django.db.models import Count, Q
-from django.http import Http404, HttpResponseRedirect, JsonResponse
+from django.http import FileResponse, Http404, HttpResponseRedirect, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
@@ -42,6 +43,7 @@ from .models import (
     Announcement,
     AnnouncementRead,
     AttendanceRecord,
+    ExportJob,
     FeeNotice,
     GuardianLink,
     Homework,
@@ -62,6 +64,7 @@ from .models import (
     Student,
     Term,
 )
+from . import exports
 from .permissions import role_required, scope_to_school, superuser_required
 from .push import notify_users, push_configured
 
@@ -3226,6 +3229,142 @@ def guardian_restore(request, pk):
     membership.save(update_fields=["is_active"])
     messages.success(request, f"{membership.user}'s access has been restored.")
     return redirect("core:guardians")
+
+
+# ---------------------------------------------------------------------
+# Data export — roadmap: "one-click CSV/PDF export of a school's own
+# records — nothing locked in, ever." Admin-only, same as Settings and
+# Teachers: exporting the whole school's records is an admin-level
+# action, not something every teacher can trigger. All the actual export
+# logic (the registry of exportable record types, school-scoping,
+# filtering, CSV/PDF rendering, and the background-job runner) lives in
+# core.exports — these views are just the admin-facing "pick a type,
+# pick filters and a format, download (now or once it's ready)" wrapper
+# around it.
+#
+# A queryset under core.exports.BACKGROUND_EXPORT_ROW_THRESHOLD renders
+# and downloads immediately, in the request. A bigger one is handed off
+# to a background thread as a core.models.ExportJob instead — the
+# roadmap's "a large school's full-year export doesn't time out a web
+# request" — and the export panel lists recent jobs so the admin can see
+# it go from Pending → Running → Ready (or Failed) and download it once
+# it's there; that job list *is* the "in-app notification" the roadmap
+# asks for, backed up by a push notification (core.push.notify_users, if
+# the school has push configured) so the admin doesn't have to keep the
+# tab open watching it.
+#
+# There's no Celery/Redis/etc. here — just a plain Python thread per
+# job. That's a deliberate, roadmap-sanctioned choice ("reusing whatever
+# async task runner the app already has, or a simple queue if none
+# exists yet") rather than adding a new service every self-hosted school
+# would need to run alongside Postgres, for what a small school's export
+# volumes don't actually need. settings.EXPORT_JOBS_RUN_SYNC (only ever
+# true in notipa.test_settings) runs the same job function inline
+# instead of on a thread, so tests are deterministic without needing to
+# wait on a background thread.
+# ---------------------------------------------------------------------
+
+@login_required
+@role_required(SchoolMembership.Role.ADMIN)
+def export_panel(request):
+    if request.school is None:
+        messages.error(request, "You need to be linked to a school to export data.")
+        return redirect("core:dashboard")
+
+    classes = scope_to_school(SchoolClass.objects.all(), request).order_by(
+        "academic_year", "name"
+    )
+    jobs = list(
+        scope_to_school(ExportJob.objects.select_related("requested_by"), request).order_by(
+            "-created_at"
+        )[:20]
+    )
+    for job in jobs:
+        export_type = exports.REGISTRY.get(job.export_key)
+        job.export_label = export_type.label if export_type else job.export_key
+    return render(
+        request,
+        "core/exports.html",
+        {
+            "export_types": exports.get_export_types(),
+            "classes": classes,
+            "jobs": jobs,
+            "background_threshold": exports.BACKGROUND_EXPORT_ROW_THRESHOLD,
+        },
+    )
+
+
+@login_required
+@role_required(SchoolMembership.Role.ADMIN)
+def export_download(request):
+    if request.school is None:
+        messages.error(request, "You need to be linked to a school to export data.")
+        return redirect("core:dashboard")
+
+    export_type = exports.REGISTRY.get(request.GET.get("type", ""))
+    if export_type is None:
+        messages.error(request, "Unknown export type.")
+        return redirect("core:exports")
+
+    format_key = request.GET.get("format", ExportJob.Format.CSV)
+    if format_key not in ExportJob.Format.values:
+        format_key = ExportJob.Format.CSV
+
+    class_id_raw = request.GET.get("class_id") or None
+    class_id = class_id_raw
+    if class_id and not scope_to_school(SchoolClass.objects.all(), request).filter(
+        pk=class_id
+    ).exists():
+        # A class id that doesn't belong to this school — ignore it
+        # rather than erroring, same "no partial trust of the URL"
+        # posture as _get_membership_or_404 elsewhere in this file.
+        class_id = None
+        class_id_raw = None
+
+    date_from_raw = request.GET.get("date_from") or None
+    date_to_raw = request.GET.get("date_to") or None
+    date_from = exports.parse_iso_date(date_from_raw)
+    date_to = exports.parse_iso_date(date_to_raw)
+
+    queryset = exports.build_queryset(
+        export_type, request, class_id=class_id, date_from=date_from, date_to=date_to
+    )
+
+    if queryset.count() <= exports.BACKGROUND_EXPORT_ROW_THRESHOLD:
+        return exports.http_response(export_type, queryset, format_key, request.school.name)
+
+    job = ExportJob.objects.create(
+        school=request.school,
+        requested_by=request.user,
+        export_key=export_type.key,
+        format=format_key,
+        filters={
+            "class_id": class_id_raw,
+            "date_from": date_from_raw if date_from else None,
+            "date_to": date_to_raw if date_to else None,
+        },
+    )
+    if getattr(django_settings, "EXPORT_JOBS_RUN_SYNC", False):
+        exports.run_export_job(job.id)
+    else:
+        threading.Thread(target=exports.run_export_job, args=(job.id,), daemon=True).start()
+
+    messages.success(
+        request,
+        f"“{export_type.label}” is a large export — it's generating in the background. "
+        "It'll appear below when it's ready to download.",
+    )
+    return redirect("core:exports")
+
+
+@login_required
+@role_required(SchoolMembership.Role.ADMIN)
+def export_job_download(request, pk):
+    job = get_object_or_404(scope_to_school(ExportJob.objects.all(), request), pk=pk)
+    if job.status != ExportJob.Status.READY or not job.file:
+        messages.error(request, "That export isn't ready yet.")
+        return redirect("core:exports")
+    return FileResponse(job.file.open("rb"), as_attachment=True, filename=job.file.name.split("/")[-1])
 
 
 def offline(request):

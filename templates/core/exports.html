@@ -1,0 +1,162 @@
+{% extends "base.html" %}
+
+{% block title %}Data Export — Notipa{% endblock %}
+
+{% block breadcrumb %}
+  <span class="topbar__breadcrumb-current">Data Export</span>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <span class="page-header__eyebrow">Admin</span>
+    <h1>Data Export</h1>
+    <p class="page-header__sub">
+      Download {{ request.school.name }}'s own records as CSV or PDF, on demand — no support ticket, nothing locked
+      in. Every export is scoped to this school only.
+    </p>
+  </div>
+</div>
+
+<div class="card card--pad-lg" style="margin-bottom: 16px;">
+  <h2 style="margin-top:0;">Filters</h2>
+  <p class="field__hint" style="margin-top:-6px;">
+    Optional — leave blank to export every matching record. The class filter only applies to record types that have a
+    class of their own; the date range filters on each record type's most relevant date (shown below its name).
+    A large export (over {{ background_threshold }} rows) generates in the background instead of downloading right
+    away — it'll show up in <strong>Your Exports</strong> below once it's ready.
+  </p>
+  <form method="get" action="{% url 'core:export_download' %}" id="export-form">
+    <input type="hidden" name="format" id="id_format" value="csv">
+    <div class="field-row">
+      <div class="field">
+        <label class="field__label" for="id_class_id">Class</label>
+        <select name="class_id" id="id_class_id">
+          <option value="">All classes</option>
+          {% for c in classes %}
+            <option value="{{ c.pk }}">{{ c.name }} ({{ c.academic_year }})</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="field">
+        <label class="field__label" for="id_date_from">From</label>
+        <input type="date" name="date_from" id="id_date_from">
+      </div>
+      <div class="field">
+        <label class="field__label" for="id_date_to">To</label>
+        <input type="date" name="date_to" id="id_date_to">
+      </div>
+    </div>
+
+    <div class="table-wrap" style="margin-top: 10px;">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Record Type</th>
+            <th>Description</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for et in export_types %}
+          <tr>
+            <td class="cell--title">{{ et.label }}</td>
+            <td>
+              {{ et.description }}
+              {% if et.date_field %}
+                <div class="field__hint" style="margin:0;">Date filter applies to: {{ et.date_field }}</div>
+              {% endif %}
+              {% if not et.class_field %}
+                <div class="field__hint" style="margin:0;">Class filter does not apply to this record type.</div>
+              {% endif %}
+            </td>
+            <td style="white-space: nowrap;">
+              <button
+                type="submit" name="type" value="{{ et.key }}"
+                onclick="document.getElementById('id_format').value='csv';"
+                class="btn btn--secondary btn--sm"
+              >
+                Export CSV
+              </button>
+              <button
+                type="submit" name="type" value="{{ et.key }}"
+                onclick="document.getElementById('id_format').value='pdf';"
+                class="btn btn--secondary btn--sm"
+              >
+                Export PDF
+              </button>
+            </td>
+          </tr>
+          {% empty %}
+          <tr><td colspan="3"><div class="empty-list">No exportable record types are registered.</div></td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </form>
+</div>
+
+<div class="card card--pad-lg" style="margin-bottom: 16px;">
+  <h2 style="margin-top:0;">Your Exports</h2>
+  <p class="field__hint" style="margin-top:-6px;">
+    Large exports generate here in the background. Reload this page to check on one still Pending or Running — a
+    push notification also lets you know once it's Ready, if your device has notifications turned on.
+  </p>
+  <div class="table-wrap">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Record Type</th>
+          <th>Format</th>
+          <th>Status</th>
+          <th>Requested By</th>
+          <th>Requested At</th>
+          <th class="cell--num">Rows</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for job in jobs %}
+        <tr>
+          <td class="cell--title">{{ job.export_label }}</td>
+          <td>{{ job.get_format_display }}</td>
+          <td>
+            {% if job.status == "ready" %}
+              <span class="tag tag--active"><span class="tag__eyelet"></span>Ready</span>
+            {% elif job.status == "failed" %}
+              <span class="tag tag--neutral"><span class="tag__eyelet"></span>Failed</span>
+            {% else %}
+              <span class="tag tag--neutral"><span class="tag__eyelet"></span>{{ job.get_status_display }}</span>
+            {% endif %}
+          </td>
+          <td>{{ job.requested_by.get_full_name|default:job.requested_by.username|default:"—" }}</td>
+          <td>{{ job.created_at|date:"M j, Y H:i" }}</td>
+          <td class="cell--num">{{ job.row_count|default:"—" }}</td>
+          <td>
+            {% if job.status == "ready" %}
+              <a href="{% url 'core:export_job_download' job.pk %}" class="btn btn--secondary btn--sm">Download</a>
+            {% elif job.status == "failed" %}
+              <span class="field__hint" style="margin:0;" title="{{ job.error_message }}">Generation failed</span>
+            {% else %}
+              <span class="field__hint" style="margin:0;">Generating…</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="7"><div class="empty-list">No background exports yet — most exports download immediately above.</div></td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card card--pad-lg">
+  <h2 style="margin-top:0;">About this export</h2>
+  <p class="field__hint" style="margin:0;">
+    A smaller export downloads straight to your browser as soon as you click — nothing is emailed or stored
+    anywhere else. A large export (roughly 500+ matching rows) generates in the background instead, so it can't time
+    out a page load; it appears under <strong>Your Exports</strong> once it's ready, and stays there until you
+    download it.
+  </p>
+</div>
+{% endblock %}

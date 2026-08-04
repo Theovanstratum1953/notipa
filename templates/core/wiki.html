@@ -11,7 +11,7 @@
   <div>
     <span class="page-header__eyebrow">Help</span>
     <h1>User Manual</h1>
-    <p class="page-header__sub">How to set up a school, manage the people in it — teachers, guardians, classes, and students — and post announcements, homework, fee notices, permission slips, attendance, and report cards.</p>
+    <p class="page-header__sub">How to set up a school, manage the people in it — teachers, guardians, classes, and students — post announcements, homework, fee notices, permission slips, attendance, and report cards, and export your school's own data.</p>
   </div>
 </div>
 
@@ -21,6 +21,7 @@
     <li style="margin-bottom: 6px;"><a href="#roles">Roles and how the app is scoped to your school</a></li>
     <li style="margin-bottom: 6px;"><a href="#school-setup">Setting up a school</a></li>
     <li style="margin-bottom: 6px;"><a href="#settings">Settings</a></li>
+    <li style="margin-bottom: 6px;"><a href="#data-export">Data Export</a></li>
     <li style="margin-bottom: 6px;"><a href="#teachers">Teachers</a></li>
     <li style="margin-bottom: 6px;"><a href="#guardians">Guardians</a></li>
     <li style="margin-bottom: 6px;"><a href="#classes">Classes</a></li>
@@ -61,6 +62,14 @@
   <p>This edits whichever school is currently active for you — if you belong to more than one school, use the school switcher in the top-right first, then open Settings.</p>
   <p>The school's <strong>tier</strong> (Free/Track 1 or Paid/Track 2) is shown here but can't be changed from this page — that's a licensing decision handled by the platform operator, not something a school changes for itself.</p>
   <p><strong>Guardian ↔ Teacher messaging</strong> is off by default — turn it on here once your school is ready to support real-time parent messaging (staffing, moderation, and expectations around response time are worth thinking through first). See <a href="#messaging">Messaging</a> below for what turning it on actually does.</p>
+</div>
+
+<div class="card card--pad-lg" id="data-export" style="margin-bottom: 20px;">
+  <h2 style="margin-top:0;">Data Export</h2>
+  <p>Open <strong>Data Export</strong> under Admin in the sidebar (admins only) to download your school's own records as CSV or PDF — students, guardians, guardian-student links, announcements, homework, fee notices, and permission slip responses. Notipa is self-hosted specifically so a school's data belongs to the school, not a vendor; this is that promise made concrete: any admin can get a complete, usable copy of the school's own records at any time, without contacting anyone.</p>
+  <p><strong>Exporting a record type:</strong> optionally narrow it first — pick a class (for record types that have one) and/or a date range, which filters on whichever date is most relevant for that record type (shown under its description). Leave both blank to export every matching record. Then click <strong>Export CSV</strong> or <strong>Export PDF</strong> next to the record type you want. CSV is the right choice for opening in a spreadsheet or importing elsewhere; PDF renders the same data as a clean, printable table — useful for a class roster or a permission-slip response summary you want to hand someone on paper.</p>
+  <p><strong>Smaller exports</strong> (roughly under 500 matching rows) download straight to your browser the moment you click. <strong>Larger exports</strong> generate in the background instead, so a big export can't time out the page — it shows up under <strong>Your Exports</strong> on the same page as <strong>Pending</strong>, then <strong>Running</strong>, then <strong>Ready</strong> with a <strong>Download</strong> button once it's done (or <strong>Failed</strong>, in the rare case something went wrong generating it). If your device has notifications turned on (see <a href="#app-notifications">Installing the app and turning on notifications</a>), you'll also get a push notification the moment a background export is ready, so there's no need to keep the tab open watching it.</p>
+  <p>Every export — immediate or background — only ever contains the currently active school's own data, the same school-scoping boundary every other section of the app already enforces, so this can't be used to pull another school's records even on a multi-school install.</p>
 </div>
 
 <div class="card card--pad-lg" id="teachers" style="margin-bottom: 20px;">
